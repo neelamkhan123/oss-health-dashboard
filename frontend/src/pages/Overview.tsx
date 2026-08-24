@@ -9,6 +9,7 @@ import {
   DataTable,
   Skeleton,
   EmptyState,
+  Card,
   type DataTableColumn,
 } from "@neelamkhan21/ui";
 import { Clock, CircleAlert, Users, TrendingUp, Inbox } from "lucide-react";
@@ -21,6 +22,7 @@ import {
   CartesianGrid,
   Tooltip as RechartsTooltip,
 } from "recharts";
+import { PageHeader } from "../layout/PageHeader";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -48,14 +50,30 @@ export function Overview() {
       });
   }, []);
 
-  if (status === "loading") return <OverviewSkeleton />;
+  if (status === "loading") {
+    return (
+      <div className="flex flex-col gap-6">
+        <PageHeader
+          title="Overview"
+          description="Everything happening across your tracked repositories."
+        />
+        <OverviewSkeleton />
+      </div>
+    );
+  }
   if (status === "empty") {
     return (
-      <EmptyState
-        icon={<Inbox size={32} />}
-        title="No repositories synced yet"
-        description="The first sync pulls 90 days of pull requests, issues, and commits."
-      />
+      <div className="flex flex-col gap-6">
+        <PageHeader
+          title="Overview"
+          description="Everything happening across your tracked repositories."
+        />
+        <EmptyState
+          icon={<Inbox size={32} />}
+          title="No repositories synced yet"
+          description="The first sync pulls 90 days of pull requests, issues, and commits."
+        />
+      </div>
     );
   }
 
@@ -107,14 +125,12 @@ export function Overview() {
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-          gap: 16,
-        }}
-      >
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Overview"
+        description="Everything happening across your tracked repositories."
+      />
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
         <StatCard
           label="Avg. time to merge"
           value={data.avgMergeTime.value}
@@ -191,26 +207,22 @@ export function Overview() {
         </ResponsiveContainer>
       </Chart>
 
-      <DataTable
-        columns={repoColumns}
-        data={sortedRepos}
-        getRowId={(r) => r.fullName}
-      />
+      <Card className="p-1">
+        <DataTable
+          columns={repoColumns}
+          data={sortedRepos}
+          getRowId={(r) => r.fullName}
+        />
+      </Card>
     </div>
   );
 }
 
 function OverviewSkeleton() {
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(4, 1fr)",
-        gap: 16,
-      }}
-    >
+    <div className="grid grid-cols-4 gap-4">
       {[1, 2, 3, 4].map((i) => (
-        <Skeleton key={i} style={{ height: 132 }} />
+        <Skeleton key={i} className="h-33" />
       ))}
     </div>
   );

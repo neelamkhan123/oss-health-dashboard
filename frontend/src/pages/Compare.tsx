@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Toggle } from "@neelamkhan21/ui";
+import { Toggle, EmptyState } from "@neelamkhan21/ui";
+import { Layers } from "lucide-react";
+import { PageHeader } from "../layout/PageHeader";
 
 const TRACKED_REPOS = ["facebook/react", "vuejs/core", "microsoft/vscode"];
 
@@ -7,11 +9,17 @@ export function Compare() {
   const [selected, setSelected] = useState<string[]>(TRACKED_REPOS);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      <div style={{ display: "flex", gap: 6 }}>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Compare"
+        description="Pick two or more tracked repositories to compare side by side."
+      />
+
+      <div className="flex flex-wrap items-center gap-1.5">
         {TRACKED_REPOS.map((repo) => (
           <Toggle
             key={repo}
+            variant="outline"
             pressed={selected.includes(repo)}
             onPressedChange={(pressed: boolean) =>
               setSelected((prev) =>
@@ -24,20 +32,25 @@ export function Compare() {
         ))}
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-          gap: 16,
-        }}
-      >
-        {/* Fetch per-repo stats for `selected` and render a StatCard each —
-            same fetch pattern as RepoDetail, called once per selected repo. */}
-      </div>
+      {selected.length === 0 ? (
+        <EmptyState
+          icon={<Layers size={32} />}
+          title="No repositories selected"
+          description="Choose at least two repositories above to compare them."
+          live
+        />
+      ) : (
+        <>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
+            {/* Fetch per-repo stats for `selected` and render a StatCard each —
+                same fetch pattern as RepoDetail, called once per selected repo. */}
+          </div>
 
-      {/* Comparison table + overlaid trend chart — build once the StatCard
-          row above is working; both reuse components you'll have already
-          built for Overview and Repo Detail by this point. */}
+          {/* Comparison table + overlaid trend chart — build once the StatCard
+              row above is working; both reuse components already built for
+              Overview and Repo Detail. */}
+        </>
+      )}
     </div>
   );
 }
