@@ -3,12 +3,15 @@ import { useEffect, useState } from "react";
 import {
   Badge,
   Button,
+  Card,
   DataTable,
   AvatarGroup,
   Avatar,
+  AvatarFallback,
   type DataTableColumn,
 } from "@neelamkhan21/ui";
 import { Star, ExternalLink } from "lucide-react";
+import { PageHeader } from "../layout/PageHeader";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -24,29 +27,44 @@ export function RepoDetail() {
       .then(setStats);
   }, [repoId]);
 
-  if (!stats) return <p>Loading…</p>;
+  if (!stats) {
+    return (
+      <div className="flex flex-col gap-6">
+        <PageHeader title={repoId ?? "Repository"} />
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Loading…
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <div>
-          <h1>{stats.repo}</h1>
-          <div style={{ display: "flex", gap: 8 }}>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title={stats.repo}
+        description={
+          <span className="flex items-center gap-2">
             <Badge variant="secondary">JavaScript</Badge>
             <Badge variant="outline">MIT license</Badge>
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Button variant="outline" size="sm" icon={<Star size={14} />}>
-            Watch
-          </Button>
-          <Button variant="outline" size="sm" icon={<ExternalLink size={14} />}>
-            Open on GitHub
-          </Button>
-        </div>
-      </div>
+          </span>
+        }
+        actions={
+          <>
+            <Button variant="outline" size="sm" icon={<Star size={14} />}>
+              Watch
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              icon={<ExternalLink size={14} />}
+            >
+              Open on GitHub
+            </Button>
+          </>
+        }
+      />
 
-      <p>
+      <p className="text-sm text-slate-600 dark:text-slate-300">
         Avg. merge time: {stats.avg_merge_time_hours}h · Total PRs:{" "}
         {stats.total_prs}
       </p>
@@ -93,22 +111,28 @@ function ContributorLeaderboard({ repoId }: { repoId: string }) {
   );
 
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <h2>Contributor leaderboard</h2>
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <h2 className="m-0 text-lg font-semibold tracking-tight text-slate-950 dark:text-white">
+          Contributor leaderboard
+        </h2>
         <AvatarGroup label="Top contributors" size="sm" max={5}>
           {contributors.slice(0, 5).map((c) => (
             <Avatar key={c.username}>
-              {c.username.slice(0, 2).toUpperCase()}
+              <AvatarFallback>
+                {c.username.slice(0, 2).toUpperCase()}
+              </AvatarFallback>
             </Avatar>
           ))}
         </AvatarGroup>
       </div>
-      <DataTable
-        columns={contributorColumns}
-        data={sortedContributors}
-        getRowId={(r) => r.username}
-      />
+      <Card className="p-1">
+        <DataTable
+          columns={contributorColumns}
+          data={sortedContributors}
+          getRowId={(r) => r.username}
+        />
+      </Card>
     </div>
   );
 }
