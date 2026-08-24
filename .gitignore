@@ -1,0 +1,23 @@
+# Environments / secrets
+venv
+.venv
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# OS / editor
+.DS_Store
