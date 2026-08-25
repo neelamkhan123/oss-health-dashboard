@@ -6,6 +6,7 @@ import { Overview } from "./pages/Overview";
 import { RepoDetail } from "./pages/RepoDetail";
 import { Compare } from "./pages/Compare";
 import "./index.css";
+import { reportWebVitals } from "./reportWebVitals";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -20,3 +21,5 @@ createRoot(document.getElementById("root")!).render(
     </BrowserRouter>
   </StrictMode>,
 );
+
+reportWebVitals();
