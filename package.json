@@ -1,0 +1,8 @@
+{
+  "devDependencies": {
+    "@lhci/cli": "^0.15.1"
+  },
+  "dependencies": {
+    "web-vitals": "^6.2.0"
+  }
+}
