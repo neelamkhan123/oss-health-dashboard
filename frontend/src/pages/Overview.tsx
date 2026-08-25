@@ -1,229 +1,294 @@
-// src/pages/Overview.tsx
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   StatCard,
-  Chart,
-  ChartLegend,
-  ChartLegendItem,
-  ChartDataTable,
   DataTable,
   Skeleton,
   EmptyState,
   Card,
+  Badge,
+  Button,
+  Sparkline,
   type DataTableColumn,
 } from "@neelamkhan21/ui";
-import { Clock, CircleAlert, Users, TrendingUp, Inbox } from "lucide-react";
+import { Clock, CircleAlert, Users, TrendingUp, Inbox, Folder, Plus } from "lucide-react";
+import { TrendChartCard, type TrendMetric } from "../components/TrendChartCard";
 import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-} from "recharts";
-import { PageHeader } from "../layout/PageHeader";
+  MOCK_REPOS,
+  MOCK_OVERVIEW_STATS,
+  type MockRepo,
+} from "../lib/mockData";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
-type TrendSeries = { name: string; data: number[] };
-
-type RepoRow = {
-  fullName: string;
-  avgMergeHours: number;
-  openIssues: number;
-  contributors: number;
-};
+type Status = "loading" | "ready" | "empty";
 
 export function Overview() {
-  const [data, setData] = useState<any>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "empty">(
-    "loading",
-  );
+  const [status, setStatus] = useState<Status>("loading");
+  const [metric, setMetric] = useState<TrendMetric>("merge");
 
   useEffect(() => {
-    fetch(`${API_URL}/dashboard/overview`)
+    // GET /api/dashboard/overview is still the Part 9.6 stub: it returns one
+    // row per synced repo with every metric hard-coded to 0 and every KPI to
+    // "—", and an empty `trend`. So it can tell us one useful thing — whether
+    // anything has been synced at all — and nothing else. That's what it's
+    // used for here; the numbers below come from the placeholder dataset.
+    //
+    // Note this page now needs several fields the endpoint has no source for
+    // at all (first-response time, merge rate, status) — see the gap notes at
+    // the top of mockData.ts. Rendering `json` directly once the stub grows
+    // real numbers will still leave those columns empty, so treat the swap as
+    // "read what exists, keep the placeholder for the rest" rather than a
+    // one-line substitution.
+    // The timeout is doing real work, not being defensive for its own sake:
+    // a refused connection rejects immediately, but a port that *accepts*
+    // and then never answers (a container proxy holding 8000 open while the
+    // app behind it is down — the normal state of a half-started docker
+    // compose) leaves this promise pending forever, and with it the loading
+    // skeleton. An unbounded wait for a backend the page can already render
+    // without is the wrong trade.
+    fetch(`${API_URL}/dashboard/overview`, { signal: AbortSignal.timeout(4000) })
       .then((res) => res.json())
-      .then((json) => {
-        setData(json);
-        setStatus(json.repos.length === 0 ? "empty" : "ready");
-      });
+      .then((json) => setStatus(json.repos.length === 0 ? "empty" : "ready"))
+      // No backend running, CORS misconfigured, request timed out — show the
+      // placeholder dashboard rather than staying on the skeleton.
+      .catch(() => setStatus("ready"));
   }, []);
 
-  if (status === "loading") {
-    return (
-      <div className="flex flex-col gap-6">
-        <PageHeader
-          title="Overview"
-          description="Everything happening across your tracked repositories."
-        />
-        <OverviewSkeleton />
-      </div>
-    );
-  }
-  if (status === "empty") {
-    return (
-      <div className="flex flex-col gap-6">
-        <PageHeader
-          title="Overview"
-          description="Everything happening across your tracked repositories."
-        />
-        <EmptyState
-          icon={<Inbox size={32} />}
-          title="No repositories synced yet"
-          description="The first sync pulls 90 days of pull requests, issues, and commits."
-        />
-      </div>
-    );
-  }
-
-  // One row per month, one column per series — the shape both Recharts and
-  // ChartDataTable want.
-  const trendData = data.trend.months.map((month: string, i: number) => {
-    const row: Record<string, string | number> = { month };
-    data.trend.series.forEach((s: TrendSeries) => {
-      row[s.name] = s.data[i];
-    });
-    return row;
-  });
-
-  const chartColumns = [
-    { header: "Month", cell: (row: (typeof trendData)[number]) => row.month },
-    ...data.trend.series.map((s: TrendSeries) => ({
-      header: s.name,
-      cell: (row: (typeof trendData)[number]) => row[s.name],
-    })),
-  ];
-
-  const repoColumns: DataTableColumn<RepoRow>[] = [
-    { key: "fullName", header: "Repository" },
-    {
-      key: "avgMergeHours",
-      header: "Avg. merge time",
-      align: "right",
-      sortable: true,
-    },
-    {
-      key: "openIssues",
-      header: "Open issues",
-      align: "right",
-      sortable: true,
-    },
-    {
-      key: "contributors",
-      header: "Contributors",
-      align: "right",
-      sortable: true,
-    },
-  ];
-
-  // DataTable has no "default sort" prop (sorting is click-to-sort only) —
-  // pre-sort the rows we hand it instead, matching the old default of
-  // ascending by merge time.
-  const sortedRepos = [...data.repos].sort(
-    (a: RepoRow, b: RepoRow) => a.avgMergeHours - b.avgMergeHours,
-  );
+  if (status === "loading") return <OverviewSkeleton />;
+  if (status === "empty") return <OverviewEmpty onConnect={() => setStatus("ready")} />;
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
-        title="Overview"
-        description="Everything happening across your tracked repositories."
-      />
       <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
         <StatCard
           label="Avg. time to merge"
-          value={data.avgMergeTime.value}
-          delta={data.avgMergeTime.delta}
+          value={MOCK_OVERVIEW_STATS.avgMergeTime.value}
+          delta={MOCK_OVERVIEW_STATS.avgMergeTime.delta}
+          deltaLabel={MOCK_OVERVIEW_STATS.avgMergeTime.deltaLabel}
           deltaDirection="down-is-good"
-          trend={data.avgMergeTime.sparkline}
+          trend={MOCK_OVERVIEW_STATS.avgMergeTime.sparkline}
           icon={<Clock size={16} />}
         />
         <StatCard
           label="Open issues"
-          value={data.openIssues.value}
-          delta={data.openIssues.delta}
+          value={MOCK_OVERVIEW_STATS.openIssues.value}
+          delta={MOCK_OVERVIEW_STATS.openIssues.delta}
+          deltaLabel={MOCK_OVERVIEW_STATS.openIssues.deltaLabel}
           deltaDirection="down-is-good"
-          trend={data.openIssues.sparkline}
+          trend={MOCK_OVERVIEW_STATS.openIssues.sparkline}
           icon={<CircleAlert size={16} />}
         />
         <StatCard
           label="Contributors, 90 days"
-          value={data.contributors.value}
-          delta={data.contributors.delta}
-          trend={data.contributors.sparkline}
+          value={MOCK_OVERVIEW_STATS.contributors.value}
+          delta={MOCK_OVERVIEW_STATS.contributors.delta}
+          deltaLabel={MOCK_OVERVIEW_STATS.contributors.deltaLabel}
+          trend={MOCK_OVERVIEW_STATS.contributors.sparkline}
           icon={<Users size={16} />}
         />
         <StatCard
           label="PRs merged this week"
-          value={data.prsThisWeek.value}
-          delta={data.prsThisWeek.delta}
-          trend={data.prsThisWeek.sparkline}
+          value={MOCK_OVERVIEW_STATS.prsThisWeek.value}
+          delta={MOCK_OVERVIEW_STATS.prsThisWeek.delta}
+          deltaLabel={MOCK_OVERVIEW_STATS.prsThisWeek.deltaLabel}
+          trend={MOCK_OVERVIEW_STATS.prsThisWeek.sparkline}
           icon={<TrendingUp size={16} />}
         />
       </div>
 
-      <Chart
-        title="PR merge trend"
-        description="Average merge time across tracked repositories, by month."
-        height={280}
-        legend={
-          <ChartLegend>
-            {data.trend.series.map((s: TrendSeries, i: number) => (
-              <ChartLegendItem
-                key={s.name}
-                color={`var(--chart-${(i % 8) + 1})`}
-              >
-                {s.name}
-              </ChartLegendItem>
-            ))}
-          </ChartLegend>
-        }
-        dataTable={
-          <ChartDataTable
-            caption="PR merge trend by month"
-            columns={chartColumns}
-            data={trendData}
-          />
-        }
-      >
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={trendData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="month" />
-            <YAxis />
-            <RechartsTooltip />
-            {data.trend.series.map((s: TrendSeries, i: number) => (
-              <Line
-                key={s.name}
-                type="monotone"
-                dataKey={s.name}
-                stroke={`var(--chart-${(i % 8) + 1})`}
-                strokeWidth={2}
-                dot={false}
-              />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
-      </Chart>
+      <TrendChartCard repos={MOCK_REPOS} metric={metric} onMetricChange={setMetric} />
 
-      <Card className="p-1">
-        <DataTable
-          columns={repoColumns}
-          data={sortedRepos}
-          getRowId={(r) => r.fullName}
-        />
-      </Card>
+      <TrackedRepositories />
     </div>
+  );
+}
+
+function TrackedRepositories() {
+  const navigate = useNavigate();
+
+  const columns: DataTableColumn<MockRepo>[] = [
+    {
+      key: "id",
+      header: "Repository",
+      cell: (repo) => (
+        <a
+          href={`/repos/${encodeURIComponent(repo.id)}`}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            navigate(`/repos/${encodeURIComponent(repo.id)}`);
+          }}
+          className="flex items-center gap-2 font-medium text-slate-950 hover:underline dark:text-white"
+        >
+          <Folder size={14} aria-hidden="true" />
+          {repo.id}
+        </a>
+      ),
+      sortable: true,
+    },
+    {
+      key: "merge",
+      header: "Avg. merge time",
+      align: "right",
+      sortable: true,
+      // Every metric column displays a formatted string but sorts on the raw
+      // number behind it — otherwise "1,043" would sort before "612".
+      sortValue: (repo) => repo.merge.v,
+      cell: (repo) => repo.merge.d,
+      filterValue: (repo) => repo.merge.d,
+    },
+    {
+      key: "response",
+      header: "First response",
+      align: "right",
+      sortable: true,
+      sortValue: (repo) => repo.response.v,
+      cell: (repo) => repo.response.d,
+      filterValue: (repo) => repo.response.d,
+    },
+    {
+      key: "issues",
+      header: "Open issues",
+      align: "right",
+      sortable: true,
+      sortValue: (repo) => repo.issues.v,
+      cell: (repo) => repo.issues.d,
+      filterValue: (repo) => repo.issues.d,
+    },
+    {
+      key: "contrib",
+      header: "Contributors",
+      align: "right",
+      sortable: true,
+      sortValue: (repo) => repo.contrib.v,
+      cell: (repo) => repo.contrib.d,
+      filterValue: (repo) => repo.contrib.d,
+    },
+    {
+      key: "mergeRate",
+      header: "Merge rate",
+      align: "right",
+      sortable: true,
+      sortValue: (repo) => repo.mergeRate.v,
+      cell: (repo) => repo.mergeRate.d,
+      filterValue: (repo) => repo.mergeRate.d,
+    },
+    {
+      key: "spark",
+      header: "90-day trend",
+      cell: (repo) => (
+        <Sparkline data={repo.spark} className="h-8 w-24" style={{ color: repo.color }} />
+      ),
+      // A sparkline contributes no text to search, and its raw array would
+      // match nonsense like "46,44".
+      filterValue: () => "",
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (repo) => <Badge variant={repo.statusVariant}>{repo.status}</Badge>,
+      filterValue: (repo) => repo.status,
+    },
+  ];
+
+  // DataTable has no "default sort" prop (sorting is click-to-sort only) —
+  // pre-sort the rows we hand it instead, fastest-merging repo first.
+  const rows = [...MOCK_REPOS].sort((a, b) => a.merge.v - b.merge.v);
+
+  return (
+    <Card className="p-6">
+      <div className="mb-3 flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-1.5">
+          <h2 className="m-0 text-sm font-semibold text-slate-950 dark:text-white">
+            Tracked repositories
+          </h2>
+          <p className="m-0 text-xs text-slate-500 dark:text-slate-400">
+            Last 90 days. Click a repository for the full breakdown.
+          </p>
+        </div>
+        {/* Disabled rather than a no-op: there is no "add a repository"
+         * endpoint, and the tracked list is a hard-coded constant shared
+         * with the backend's sync job (see lib/constants.ts), so a working
+         * button here would need that list to become real data first. */}
+        <Button variant="ghost" size="sm" icon={<Plus size={14} />} disabled>
+          Add repository
+        </Button>
+      </div>
+      <DataTable columns={columns} data={rows} getRowId={(repo) => repo.id} />
+    </Card>
   );
 }
 
 function OverviewSkeleton() {
   return (
-    <div className="grid grid-cols-4 gap-4">
-      {[1, 2, 3, 4].map((i) => (
-        <Skeleton key={i} className="h-33" />
-      ))}
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+        <Skeleton className="size-3.5 rounded-full" />
+        <span>Syncing repositories from the GitHub API</span>
+      </div>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
+        {[1, 2, 3, 4].map((i) => (
+          <Card key={i} className="flex flex-col gap-4 p-5">
+            <Skeleton className="h-3 w-28" />
+            <div className="flex items-end justify-between gap-4">
+              <Skeleton className="h-7 w-22" />
+              <Skeleton className="h-8 w-24" />
+            </div>
+          </Card>
+        ))}
+      </div>
+      <Card className="flex flex-col gap-5 p-6">
+        <Skeleton className="h-4 w-45" />
+        <Skeleton className="h-62 w-full" />
+      </Card>
+      <Card className="flex flex-col gap-3.5 p-6">
+        <Skeleton className="h-4 w-55" />
+        {[1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-9 w-full" />
+        ))}
+      </Card>
+    </div>
+  );
+}
+
+function OverviewEmpty({ onConnect }: { onConnect: () => void }) {
+  const steps = [
+    ["1. Connect GitHub", "Read-only access to public repository metadata."],
+    ["2. Pick repositories", "Up to 25 repositories per workspace."],
+    [
+      "3. Wait for the first sync",
+      "Around four minutes for a repository the size of react.",
+    ],
+  ];
+
+  return (
+    <div className="flex flex-col gap-6">
+      <EmptyState
+        icon={<Inbox size={20} />}
+        title="No repositories synced yet"
+        description="Connect a GitHub account and pick the repositories you want to track. The first sync pulls 90 days of pull requests, issues and commits."
+        action={
+          // No OAuth flow exists yet, so this stands in for one by revealing
+          // the placeholder dashboard — enough to review the layout behind
+          // the empty state without pretending a connection was made.
+          <Button size="sm" onClick={onConnect}>
+            Connect GitHub
+          </Button>
+        }
+      />
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
+        {steps.map(([title, description]) => (
+          <Card key={title} className="flex flex-col gap-1.5 p-5">
+            <span className="text-sm font-medium text-slate-950 dark:text-white">
+              {title}
+            </span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {description}
+            </span>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }
