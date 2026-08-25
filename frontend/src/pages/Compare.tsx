@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { Suspense, useState, type CSSProperties } from "react";
 import {
   Toggle,
   EmptyState,
@@ -13,7 +13,8 @@ import {
   TableCell,
 } from "@neelamkhan21/ui";
 import { Layers } from "lucide-react";
-import { TrendChartCard, type TrendMetric } from "../components/TrendChartCard";
+import { LazyTrendChartCard, TrendChartCardSkeleton } from "../components/LazyTrendChartCard";
+import type { TrendMetric } from "../components/TrendChartCard";
 import { MOCK_REPOS, type MockRepo, type MetricValue } from "../lib/mockData";
 
 /**
@@ -116,11 +117,13 @@ export function Compare() {
 
           <CoreMetrics selected={selected} />
 
-          <TrendChartCard
-            repos={selected}
-            metric={metric}
-            onMetricChange={setMetric}
-          />
+          <Suspense fallback={<TrendChartCardSkeleton />}>
+            <LazyTrendChartCard
+              repos={selected}
+              metric={metric}
+              onMetricChange={setMetric}
+            />
+          </Suspense>
         </>
       )}
     </div>

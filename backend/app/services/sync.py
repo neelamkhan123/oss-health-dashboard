@@ -1,3 +1,4 @@
+import hashlib
 import httpx
 import datetime
 from sqlalchemy.orm import sessionmaker
@@ -5,6 +6,7 @@ from sqlalchemy import create_engine
 from app.config import settings
 from app.models.models import Repo, PullRequest, Issue, Contributor
 from app.services.celery_app import celery_app
+from app.services.cache import cache_get, cache_set, r
 
 engine = create_engine(settings.database_url)
 SessionLocal = sessionmaker(bind=engine)
@@ -39,17 +41,29 @@ def sync_one_repo(full_name: str):
 
         repo.last_synced_at = datetime.datetime.utcnow()
         db.commit()
+        r.delete(f"repo_stats:{repo.id}")
     finally:
         db.close()
 
+def _cached_github_get(client, url, params):
+    cache_key = "gh:" + hashlib.sha256(f"{url}{params}".encode()).hexdigest()
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+    resp = client.get(url, params=params)
+    resp.raise_for_status()
+    data = resp.json()
+    cache_set(cache_key, data, ttl_seconds=300)
+    return data
+
 def _sync_pull_requests(client, db, repo, since):
     owner, name = repo.full_name.split("/")
-    resp = client.get(
+    data = _cached_github_get(
+        client,
         f"{GITHUB_API}/repos/{owner}/{name}/pulls",
-        params={"state": "all", "sort": "updated", "direction": "desc", "per_page": 100},
+        {"state": "all", "sort": "updated", "direction": "desc", "per_page": 100},
     )
-    resp.raise_for_status()
-    for pr in resp.json():
+    for pr in data:
         existing = db.query(PullRequest).filter_by(
             repo_id=repo.id, github_pr_number=pr["number"]
         ).first()
@@ -65,12 +79,12 @@ def _sync_pull_requests(client, db, repo, since):
 
 def _sync_issues(client, db, repo, since):
     owner, name = repo.full_name.split("/")
-    resp = client.get(
+    data = _cached_github_get(
+        client,
         f"{GITHUB_API}/repos/{owner}/{name}/issues",
-        params={"state": "all", "since": since, "per_page": 100},
+        {"state": "all", "since": since, "per_page": 100},
     )
-    resp.raise_for_status()
-    for issue in resp.json():
+    for issue in data:
         if "pull_request" in issue:
             continue  # GitHub's issues endpoint includes PRs; skip those
         existing = db.query(Issue).filter_by(
@@ -88,9 +102,12 @@ def _sync_issues(client, db, repo, since):
 
 def _sync_contributors(client, db, repo):
     owner, name = repo.full_name.split("/")
-    resp = client.get(f"{GITHUB_API}/repos/{owner}/{name}/contributors", params={"per_page": 100})
-    resp.raise_for_status()
-    for c in resp.json():
+    data = _cached_github_get(
+        client,
+        f"{GITHUB_API}/repos/{owner}/{name}/contributors",
+        {"per_page": 100},
+    )
+    for c in data:
         existing = db.query(Contributor).filter_by(repo_id=repo.id, username=c["login"]).first()
         if not existing:
             existing = Contributor(repo_id=repo.id, username=c["login"])
