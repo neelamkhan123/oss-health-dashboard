@@ -34,12 +34,16 @@ def overview(db: Session = Depends(get_db)):
     # is working end to end. Deltas (vs. last period) and sparkline series
     # need a second query per metric comparing two date windows — build
     # that once the base numbers are flowing to the UI correctly.
+    # StatCard's `delta` prop is a signed ratio (number), and `trend` is the
+    # sparkline series (number[]) — keep the stub's shape matching those
+    # types exactly (0 / [], not "" / "neutral") so the real aggregation
+    # dropped in later doesn't also have to fix a type mismatch in the UI.
     return {
         "repos": [{"fullName": r.full_name, "avgMergeHours": 0, "openIssues": 0, "contributors": 0} for r in repos],
-        "avgMergeTime": {"value": "—", "delta": "", "trend": "neutral", "sparkline": []},
-        "openIssues": {"value": "—", "delta": "", "trend": "neutral", "sparkline": []},
-        "contributors": {"value": "—", "delta": "", "trend": "neutral", "sparkline": []},
-        "prsThisWeek": {"value": "—", "delta": "", "trend": "neutral", "sparkline": []},
+        "avgMergeTime": {"value": "—", "delta": 0, "sparkline": []},
+        "openIssues": {"value": "—", "delta": 0, "sparkline": []},
+        "contributors": {"value": "—", "delta": 0, "sparkline": []},
+        "prsThisWeek": {"value": "—", "delta": 0, "sparkline": []},
         "trend": {"months": [], "series": []},
     }
     

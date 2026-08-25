@@ -7,6 +7,71 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* The categorical series palette, promoted to a global scope.
+   *
+   * @neelamkhan21/ui sets --chart-1..8 on the <Chart> element itself, so
+   * var(--chart-N) only resolves *inside* a chart. Several places in this
+   * app need the same series color outside one — a repo's color on its
+   * StatCard sparkline, the sparkline column in the tracked-repos table,
+   * the commit heatmap's ramp, the percentile bars — and they must be the
+   * SAME hues, or a repo would change color between its row and its chart
+   * line. These values are copied verbatim from the library's exported
+   * `chartSeriesColors` (see its DECISIONS.md: the set was validated as a
+   * whole for contrast and color-vision separation, so the steps can't be
+   * re-picked independently). <Chart> redefines the identical values on
+   * itself, so nothing conflicts.
+   *
+   * If the library's palette ever changes, re-copy from `chartSeriesColors`
+   * rather than hand-editing one of these. */
+  --chart-1: #2563eb;
+  --chart-2: #f97316;
+  --chart-3: #0d9488;
+  --chart-4: #f59e0b;
+  --chart-5: #f472b6;
+  --chart-6: #15803d;
+  --chart-7: #6d28d9;
+  --chart-8: #ef4444;
+
+  /* A neutral "there is a track/cell here, but it's empty" fill — the
+   * commit heatmap's zero-commit days and the percentile bars' unfilled
+   * track. Needed as a token rather than a Tailwind class because both are
+   * set through inline styles on generated elements. Matches the
+   * slate-100/slate-800 pair the library's own components use. */
+  --surface-subtle: #f1f5f9;
+
+  /* The commit heatmap's sequential ramp: one hue at rising opacity, so
+   * density reads without a legend. Steps 1–3 are --chart-1 at 24/46/70%
+   * alpha; the fourth step is --chart-1 itself. Written out rather than
+   * derived because --chart-1 is a hex string and can't have an alpha
+   * applied to it in plain CSS. */
+  --heat-1: rgba(37, 99, 235, 0.24);
+  --heat-2: rgba(37, 99, 235, 0.46);
+  --heat-3: rgba(37, 99, 235, 0.7);
+}
+
+/* The library's `dark:` variant is Tailwind v4's default, i.e.
+ * prefers-color-scheme — matched here so the two switch together. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --chart-1: #3b82f6;
+    --chart-2: #ea580c;
+    --chart-3: #0d9488;
+    --chart-4: #d97706;
+    --chart-5: #ec4899;
+    --chart-6: #16a34a;
+    --chart-7: #8b5cf6;
+    --chart-8: #ef4444;
+
+    --surface-subtle: #1e293b;
+
+    /* Re-stepped from the dark --chart-1, not just reused: the light steps
+     * are a dark blue fading toward white, which fades toward invisible on
+     * a dark card instead. Same alphas, lighter base. */
+    --heat-1: rgba(59, 130, 246, 0.28);
+    --heat-2: rgba(59, 130, 246, 0.5);
+    --heat-3: rgba(59, 130, 246, 0.74);
+  }
 }
 
 html,
