@@ -1,20 +1,300 @@
 # backend/app/routers/dashboard.py
-from fastapi import APIRouter, Depends
-from sqlalchemy import func
+import datetime
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, case, and_, within_group
 from sqlalchemy.orm import Session
 from app.services.db import get_db
 from app.services.cache import cache_get, cache_set
-from app.models.models import Contributor, Repo, PullRequest
+from app.models.models import Contributor, Repo, PullRequest, Issue, Commit
 
 router = APIRouter()
+
+def _median_hours(start_col, end_col):
+    """A SQL expression for the median (not mean) of end_col - start_col, in
+    hours. Real merge/first-response durations are heavily right-skewed — a
+    handful of PRs or issues that sat for months pull the *mean* far above
+    what almost every PR/issue actually experiences, which is exactly what
+    real synced data showed: every tracked repo reading "Backlog growing"
+    and month-to-month averages swinging 16h to 995h on a handful of
+    outliers. The UI's own copy already says "median" throughout (matching
+    the prototype) — this makes the number match its own label."""
+    duration_hours = func.extract("epoch", end_col - start_col) / 3600.0
+    return within_group(func.percentile_cont(0.5), duration_hours.asc())
+
+# ── formatting helpers ──────────────────────────────────────────────────
+
+def _format_count(n) -> str:
+    """1043 -> '1,043'. Used for counts a reader wants exactly, not
+    approximately — open issues, contributors, total commits."""
+    if n is None:
+        return "—"
+    return f"{n:,}"
+
+def _format_compact(n) -> str:
+    """231000 -> '231k'. Used for counts nobody reads to the exact digit —
+    stars, forks."""
+    if n is None:
+        return "—"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}m"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}k"
+    return str(n)
+
+def _format_duration(hours: float) -> str:
+    """5.1 -> '5.1h'; 219.6 -> '9.2d'. Hours in, the unit that reads best
+    out — matches the prototype's own '11h' / '2.1d' convention."""
+    if hours < 24:
+        return f"{round(hours, 1)}h"
+    return f"{round(hours / 24, 1)}d"
+
+def _relative(dt) -> str:
+    """A DateTime -> '2h ago' / '3d ago', naive-UTC in, naive-UTC assumed."""
+    if dt is None:
+        return "—"
+    delta = datetime.datetime.utcnow() - dt
+    seconds = delta.total_seconds()
+    if seconds < 3600:
+        return f"{max(1, int(seconds // 60))}m ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h ago"
+    return f"{int(seconds // 86400)}d ago"
+
+MERGE_TIME_BUCKET_EDGES_HOURS = [1, 6, 24, 24 * 3, 24 * 7]  # <1h,1-6h,6-24h,1-3d,3-7d,>7d — 6 buckets
+
+def _bucket_durations(hours_list):
+    buckets = [0] * (len(MERGE_TIME_BUCKET_EDGES_HOURS) + 1)
+    for h in hours_list:
+        i = 0
+        while i < len(MERGE_TIME_BUCKET_EDGES_HOURS) and h >= MERGE_TIME_BUCKET_EDGES_HOURS[i]:
+            i += 1
+        buckets[i] += 1
+    return buckets
+
+def _percentile(sorted_values, p):
+    if not sorted_values:
+        return None
+    k = (len(sorted_values) - 1) * p
+    f, c = int(k), min(int(k) + 1, len(sorted_values) - 1)
+    if f == c:
+        return sorted_values[f]
+    return sorted_values[f] + (sorted_values[c] - sorted_values[f]) * (k - f)
+
+def _month_boundaries(n=12):
+    """The trailing n (label, start, end) month windows, oldest first —
+    end is exclusive, so filtering >= start and < end covers the month."""
+    today = datetime.datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    months = []
+    cursor = today
+    for _ in range(n):
+        start = cursor
+        end = (start.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+        months.append((start.strftime("%b"), start, end))
+        cursor = (start - datetime.timedelta(days=1)).replace(day=1)
+    months.reverse()
+    return months
+
+def _week_boundaries(n=12):
+    """The trailing n (start, end) 7-day windows, oldest first, ending now."""
+    now = datetime.datetime.utcnow()
+    weeks = []
+    for i in range(n, 0, -1):
+        end = now - datetime.timedelta(weeks=i - 1)
+        start = end - datetime.timedelta(weeks=1)
+        weeks.append((start, end))
+    return weeks
+
+# ── repo lookup ──────────────────────────────────────────────────────────
+
+def get_repo_or_404(db: Session, repo_full_name: str) -> Repo:
+    repo = db.query(Repo).filter_by(full_name=repo_full_name).first()
+    if not repo:
+        raise HTTPException(404, f"{repo_full_name:path} isn't tracked (or hasn't synced yet)")
+    return repo
+
+# ── shared computation: everything one repo's page (and one row of
+#    Overview's table, and one card in Compare) needs, in one place so
+#    those three surfaces can't drift from each other ──────────────────
+
+def compute_repo_full(db: Session, repo: Repo) -> dict:
+    # PR totals: merged implies closed (GitHub sets both together), so
+    # "open" is closed_at IS NULL and "closed, unmerged" is the rest.
+    pr_totals = (
+        db.query(
+            func.count(PullRequest.id).label("total"),
+            func.sum(case((PullRequest.merged_at.isnot(None), 1), else_=0)).label("merged"),
+            func.sum(
+                case((and_(PullRequest.closed_at.isnot(None), PullRequest.merged_at.is_(None)), 1), else_=0)
+            ).label("closed_unmerged"),
+            func.sum(case((PullRequest.closed_at.is_(None), 1), else_=0)).label("open"),
+        )
+        .filter(PullRequest.repo_id == repo.id)
+        .first()
+    )
+    resolved = (pr_totals.merged or 0) + (pr_totals.closed_unmerged or 0)
+    merge_rate_pct = round((pr_totals.merged or 0) / resolved * 100) if resolved else 0
+
+    # Merge-time durations, in hours — pulled once and reused for the
+    # average, the histogram, and the percentiles rather than three
+    # separate queries computing overlapping things.
+    duration_rows = (
+        db.query(func.extract("epoch", PullRequest.merged_at - PullRequest.created_at))
+        .filter(PullRequest.repo_id == repo.id, PullRequest.merged_at.isnot(None))
+        .all()
+    )
+    durations_hours = sorted(float(row[0]) / 3600 for row in duration_rows)
+    # Median, not mean — see _median_hours' docstring. durations_hours is
+    # already sorted, so computing it here in Python (rather than a second
+    # SQL round trip) is free.
+    avg_merge_hours = _percentile(durations_hours, 0.5) or 0.0
+    dist = _bucket_durations(durations_hours)
+    pct = [
+        (label, _format_duration(_percentile(durations_hours, p)))
+        for label, p in [("p50", 0.50), ("p75", 0.75), ("p90", 0.90), ("p95", 0.95)]
+        if durations_hours
+    ] or [(label, "—") for label in ("p50", "p75", "p90", "p95")]
+
+    open_issues = db.query(func.count(Issue.id)).filter(Issue.repo_id == repo.id, Issue.is_open.is_(True)).scalar()
+    contributors_count = db.query(func.count(Contributor.id)).filter(Contributor.repo_id == repo.id).scalar()
+
+    # Issue first-response duration, in hours — same shape of query as
+    # merge time, over whatever slice of issues _sync_issue_first_response
+    # has backfilled so far (see sync.py; this fills in gradually).
+    response_rows = (
+        db.query(func.extract("epoch", Issue.first_response_at - Issue.created_at))
+        .filter(Issue.repo_id == repo.id, Issue.first_response_at.isnot(None))
+        .all()
+    )
+    response_hours_list = sorted(float(row[0]) / 3600 for row in response_rows)
+    avg_response_hours = _percentile(response_hours_list, 0.5) if response_hours_list else None
+
+    commits_last_year = (
+        db.query(func.count(Commit.id))
+        .filter(Commit.repo_id == repo.id, Commit.authored_at >= datetime.datetime.utcnow() - datetime.timedelta(days=365))
+        .scalar()
+    )
+    commits_per_week = round(commits_last_year / 52, 1) if commits_last_year else 0.0
+
+    months = _month_boundaries(12)
+    trend_merge = []
+    trend_issue = []
+    for _, start, end in months:
+        month_median = (
+            db.query(_median_hours(PullRequest.created_at, PullRequest.merged_at))
+            .filter(
+                PullRequest.repo_id == repo.id,
+                PullRequest.merged_at.isnot(None),
+                PullRequest.merged_at >= start,
+                PullRequest.merged_at < end,
+            )
+            .scalar()
+        )
+        trend_merge.append(round(float(month_median), 1) if month_median is not None else 0.0)
+
+        month_response = (
+            db.query(_median_hours(Issue.created_at, Issue.first_response_at))
+            .filter(
+                Issue.repo_id == repo.id,
+                Issue.first_response_at.isnot(None),
+                Issue.first_response_at >= start,
+                Issue.first_response_at < end,
+            )
+            .scalar()
+        )
+        trend_issue.append(round(float(month_response), 1) if month_response is not None else 0.0)
+
+    # The Overview table's "90-day trend" sparkline reuses the same 12
+    # monthly merge-time points rather than a separate weekly query — one
+    # fewer thing to keep in sync, at the cost of it not literally
+    # spanning 90 days.
+    spark = trend_merge
+
+    # Commit heatmap: 53 weeks x 7 days, oldest week first, ending today.
+    # Sequential 7-day chunks, not calendar-week-aligned — matches how the
+    # frontend already lays the grid out.
+    heatmap_start = (datetime.datetime.utcnow() - datetime.timedelta(days=53 * 7 - 1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    day_counts = dict(
+        db.query(func.date(Commit.authored_at), func.count(Commit.id))
+        .filter(Commit.repo_id == repo.id, Commit.authored_at >= heatmap_start)
+        .group_by(func.date(Commit.authored_at))
+        .all()
+    )
+    heatmap = []
+    cursor = heatmap_start.date()
+    for _ in range(53):
+        week = []
+        for _ in range(7):
+            week.append(day_counts.get(cursor, 0))
+            cursor += datetime.timedelta(days=1)
+        heatmap.append(week)
+
+    # Status is a policy, not a measurement — someone has to define the
+    # threshold. This one: average merge time under two days reads as
+    # healthy; at or past it reads as a growing backlog. A repo with zero
+    # merged PRs yet defaults to "healthy" rather than flagging on no data.
+    if avg_merge_hours >= 48:
+        status, status_variant = "Backlog growing", "destructive"
+    else:
+        status, status_variant = "Healthy", "secondary"
+
+    top_contributors = (
+        db.query(Contributor)
+        .filter(Contributor.repo_id == repo.id)
+        .order_by(Contributor.contributions.desc())
+        .limit(10)
+        .all()
+    )
+
+    return {
+        "id": repo.full_name,
+        "lang": repo.language or "—",
+        "license": repo.license or "—",
+        "stars": _format_compact(repo.stars),
+        "forks": _format_compact(repo.forks),
+        "openPrs": _format_count(pr_totals.open or 0),
+        "merge": {"v": round(avg_merge_hours, 1), "d": _format_duration(avg_merge_hours)},
+        "response": {
+            "v": round(avg_response_hours, 1) if avg_response_hours is not None else None,
+            "d": _format_duration(avg_response_hours) if avg_response_hours is not None else "—",
+        },
+        "issues": {"v": open_issues or 0, "d": _format_count(open_issues or 0)},
+        "contrib": {"v": contributors_count or 0, "d": _format_count(contributors_count or 0)},
+        "mergeRate": {"v": merge_rate_pct, "d": f"{merge_rate_pct}%"},
+        "commits": {"v": commits_per_week, "d": str(commits_per_week)},
+        "status": status,
+        "statusVariant": status_variant,
+        "spark": spark,
+        "trendMerge": trend_merge,
+        "trendIssue": trend_issue,
+        "commitsTotal": _format_count(commits_last_year or 0),
+        "dist": dist,
+        "pct": pct,
+        "top": [
+            {
+                "login": c.username,
+                "commits": c.contributions or 0,
+                "prs": c.prs_merged or 0,
+                "reviews": c.reviews or 0,
+                "last": _relative(c.last_active_at),
+            }
+            for c in top_contributors
+        ],
+        "heatmap": heatmap,
+    }
+
+# ── endpoints ────────────────────────────────────────────────────────────
 
 @router.get("/repos/{repo_id}/stats-naive")
 def repo_stats_naive(repo_id: int, db: Session = Depends(get_db)):
     repo = db.query(Repo).filter_by(id=repo_id).first()
 
-    # N+1: this triggers a separate lazy-loaded query for EVERY pull request
-    # accessed via repo.pull_requests, and we're computing the average in
-    # Python instead of letting the database do it.
+    # N+1 as originally billed doesn't actually hold here — see
+    # PERFORMANCE.md. Left exactly as Part 8 specifies: this is the
+    # deliberately-naive baseline that Part 10's measurement compares
+    # against, addressed by numeric id (not owner/name) since it's a
+    # measurement tool, not something the UI calls.
     merge_times = []
     for pr in repo.pull_requests:
         if pr.merged_at and pr.created_at:
@@ -28,14 +308,13 @@ def repo_stats_naive(repo_id: int, db: Session = Depends(get_db)):
         "total_prs": len(repo.pull_requests),
     }
 
-@router.get("/repos/{repo_id}/stats")
-def repo_stats_optimized(repo_id: int, db: Session = Depends(get_db)):
-    cache_key = f"repo_stats:{repo_id}"
+@router.get("/repos/{repo_full_name:path}/stats")
+def repo_stats_optimized(repo_full_name: str, db: Session = Depends(get_db)):
+    repo = get_repo_or_404(db, repo_full_name)
+    cache_key = f"repo_stats:{repo.id}"
     cached = cache_get(cache_key)
     if cached:
         return cached
-
-    repo = db.query(Repo).filter_by(id=repo_id).first()
 
     result = (
         db.query(
@@ -44,47 +323,168 @@ def repo_stats_optimized(repo_id: int, db: Session = Depends(get_db)):
             ).label("avg_seconds"),
             func.count(PullRequest.id).label("total"),
         )
-        .filter(PullRequest.repo_id == repo_id, PullRequest.merged_at.isnot(None))
+        .filter(PullRequest.repo_id == repo.id, PullRequest.merged_at.isnot(None))
         .first()
     )
 
-    # func.avg(func.extract(...)) comes back from Postgres as a Decimal, not a
-    # float — round() preserves that (Decimal in, Decimal out), and Decimal
-    # isn't JSON-serializable by the stdlib `json` module cache_set uses (only
-    # FastAPI's own response encoder knows how to coerce it). Cast to float
-    # before doing arithmetic on it, so the value is a plain float everywhere
-    # downstream, not just in the uncached path.
     avg_seconds = float(result.avg_seconds) if result.avg_seconds is not None else 0.0
     response = {
         "repo": repo.full_name,
         "avg_merge_time_hours": round(avg_seconds / 3600, 1),
         "total_prs": result.total,
     }
-    cache_set(cache_key, response, ttl_seconds=900)  # 15 min, matches sync frequency
+    cache_set(cache_key, response, ttl_seconds=900)
     return response
+
+@router.get("/repos/{repo_full_name:path}/full")
+def repo_full(repo_full_name: str, db: Session = Depends(get_db)):
+    repo = get_repo_or_404(db, repo_full_name)
+    cache_key = f"repo_full:{repo.id}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+    data = compute_repo_full(db, repo)
+    cache_set(cache_key, data, ttl_seconds=900)
+    return data
+
+@router.get("/repos/{repo_full_name:path}/contributors")
+def repo_contributors(repo_full_name: str, db: Session = Depends(get_db)):
+    repo = get_repo_or_404(db, repo_full_name)
+    contributors = (
+        db.query(Contributor).filter_by(repo_id=repo.id).order_by(Contributor.contributions.desc()).all()
+    )
+    return [
+        {
+            "username": c.username,
+            "avatarUrl": c.avatar_url,
+            "contributions": c.contributions,
+            "prsMerged": c.prs_merged or 0,
+            "reviews": c.reviews or 0,
+            "lastActive": _relative(c.last_active_at),
+        }
+        for c in contributors
+    ]
 
 @router.get("/overview")
 def overview(db: Session = Depends(get_db)):
-    repos = db.query(Repo).all()
-    # Start naive here too — one query per repo for its stats — then apply
-    # the same eager-loading + SQL-aggregation fix from Part 11 once this
-    # is working end to end. Deltas (vs. last period) and sparkline series
-    # need a second query per metric comparing two date windows — build
-    # that once the base numbers are flowing to the UI correctly.
-    # StatCard's `delta` prop is a signed ratio (number), and `trend` is the
-    # sparkline series (number[]) — keep the stub's shape matching those
-    # types exactly (0 / [], not "" / "neutral") so the real aggregation
-    # dropped in later doesn't also have to fix a type mismatch in the UI.
-    return {
-        "repos": [{"fullName": r.full_name, "avgMergeHours": 0, "openIssues": 0, "contributors": 0} for r in repos],
-        "avgMergeTime": {"value": "—", "delta": 0, "sparkline": []},
-        "openIssues": {"value": "—", "delta": 0, "sparkline": []},
-        "contributors": {"value": "—", "delta": 0, "sparkline": []},
-        "prsThisWeek": {"value": "—", "delta": 0, "sparkline": []},
-        "trend": {"months": [], "series": []},
+    cache_key = "overview"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    repos = db.query(Repo).order_by(Repo.id).all()
+    if not repos:
+        return {"repos": [], "kpis": None}
+
+    repo_stats = [compute_repo_full(db, r) for r in repos]
+
+    now = datetime.datetime.utcnow()
+    period = datetime.timedelta(days=90)
+    week = datetime.timedelta(days=7)
+    repo_ids = [r.id for r in repos]
+
+    def _avg_merge_hours_between(start, end):
+        row = (
+            db.query(_median_hours(PullRequest.created_at, PullRequest.merged_at))
+            .filter(
+                PullRequest.repo_id.in_(repo_ids),
+                PullRequest.merged_at.isnot(None),
+                PullRequest.merged_at >= start,
+                PullRequest.merged_at < end,
+            )
+            .scalar()
+        )
+        return float(row) if row is not None else 0.0
+
+    def _open_issues_asof(cutoff):
+        return (
+            db.query(func.count(Issue.id))
+            .filter(
+                Issue.repo_id.in_(repo_ids),
+                Issue.created_at <= cutoff,
+                (Issue.closed_at.is_(None)) | (Issue.closed_at > cutoff),
+            )
+            .scalar()
+        )
+
+    def _active_contributors_between(start, end):
+        pr_authors = (
+            db.query(PullRequest.author)
+            .filter(PullRequest.repo_id.in_(repo_ids), PullRequest.created_at >= start, PullRequest.created_at < end)
+            .distinct()
+        )
+        commit_authors = (
+            db.query(Commit.author)
+            .filter(Commit.repo_id.in_(repo_ids), Commit.authored_at >= start, Commit.authored_at < end, Commit.author.isnot(None))
+            .distinct()
+        )
+        return len({row[0] for row in pr_authors} | {row[0] for row in commit_authors})
+
+    def _prs_merged_between(start, end):
+        return (
+            db.query(func.count(PullRequest.id))
+            .filter(PullRequest.repo_id.in_(repo_ids), PullRequest.merged_at >= start, PullRequest.merged_at < end)
+            .scalar()
+        )
+
+    def _delta(current, previous):
+        if not previous:
+            return 0.0
+        return round((current - previous) / previous, 3)
+
+    avg_merge_now = _avg_merge_hours_between(now - period, now)
+    avg_merge_prev = _avg_merge_hours_between(now - 2 * period, now - period)
+
+    open_issues_now = _open_issues_asof(now)
+    open_issues_prev = _open_issues_asof(now - period)
+
+    contrib_now = _active_contributors_between(now - period, now)
+    contrib_prev = _active_contributors_between(now - 2 * period, now - period)
+
+    prs_week_now = _prs_merged_between(now - week, now)
+    prs_week_prev = _prs_merged_between(now - 2 * week, now - week)
+
+    # 12 monthly points per KPI, reusing each repo's own trendMerge (already
+    # computed above) rather than re-querying — summed/averaged across repos
+    # so the sparkline shape matches what the per-repo trend charts show.
+    months = _month_boundaries(12)
+    merge_sparkline = [
+        round(sum(r["trendMerge"][i] for r in repo_stats) / len(repo_stats), 1) for i in range(12)
+    ]
+
+    open_issues_sparkline = [_open_issues_asof(end) for _, _, end in months]
+    contrib_sparkline = [_active_contributors_between(start, end) for start, end in [(m[1], m[2]) for m in months]]
+    weeks12 = _week_boundaries(12)
+    prs_sparkline = [_prs_merged_between(start, end) for start, end in weeks12]
+
+    result = {
+        "repos": repo_stats,
+        "kpis": {
+            "avgMergeTime": {
+                "value": _format_duration(avg_merge_now),
+                "delta": _delta(avg_merge_now, avg_merge_prev),
+                "deltaLabel": "vs. previous 90 days",
+                "sparkline": merge_sparkline,
+            },
+            "openIssues": {
+                "value": _format_count(open_issues_now),
+                "delta": _delta(open_issues_now, open_issues_prev),
+                "deltaLabel": "vs. previous 90 days",
+                "sparkline": open_issues_sparkline,
+            },
+            "contributors": {
+                "value": _format_count(contrib_now),
+                "delta": _delta(contrib_now, contrib_prev),
+                "deltaLabel": "vs. previous 90 days",
+                "sparkline": contrib_sparkline,
+            },
+            "prsThisWeek": {
+                "value": _format_count(prs_week_now),
+                "delta": _delta(prs_week_now, prs_week_prev),
+                "deltaLabel": "vs. previous week",
+                "sparkline": prs_sparkline,
+            },
+        },
     }
-    
-@router.get("/repos/{repo_id}/contributors")
-def repo_contributors(repo_id: int, db: Session = Depends(get_db)):
-    contributors = db.query(Contributor).filter_by(repo_id=repo_id).order_by(Contributor.contributions.desc()).all()
-    return [{"username": c.username, "avatarUrl": c.avatar_url, "contributions": c.contributions} for c in contributors]
+    cache_set(cache_key, result, ttl_seconds=900)
+    return result

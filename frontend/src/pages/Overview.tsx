@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   StatCard,
@@ -11,106 +11,77 @@ import {
   Sparkline,
   type DataTableColumn,
 } from "@neelamkhan21/ui";
-import { Clock, CircleAlert, Users, TrendingUp, Inbox, Folder, Plus } from "lucide-react";
+import { Clock, CircleAlert, Users, TrendingUp, Inbox, Folder, Plus, TriangleAlert } from "lucide-react";
 import { LazyTrendChartCard, TrendChartCardSkeleton } from "../components/LazyTrendChartCard";
 import type { TrendMetric } from "../components/TrendChartCard";
-import {
-  MOCK_REPOS,
-  MOCK_OVERVIEW_STATS,
-  type MockRepo,
-} from "../lib/mockData";
-
-const API_URL = import.meta.env.VITE_API_URL;
-
-type Status = "loading" | "ready" | "empty";
+import { fetchOverview } from "../lib/api";
+import { repoColor } from "../lib/types";
+import { TRACKED_REPOS } from "../lib/constants";
+import { useFetch } from "../lib/useFetch";
+import type { RepoStats } from "../lib/types";
 
 export function Overview() {
-  const [status, setStatus] = useState<Status>("loading");
+  const { isLoading, isError, data, retry } = useFetch("overview", fetchOverview);
   const [metric, setMetric] = useState<TrendMetric>("merge");
 
-  useEffect(() => {
-    // GET /api/dashboard/overview is still the Part 9.6 stub: it returns one
-    // row per synced repo with every metric hard-coded to 0 and every KPI to
-    // "—", and an empty `trend`. So it can tell us one useful thing — whether
-    // anything has been synced at all — and nothing else. That's what it's
-    // used for here; the numbers below come from the placeholder dataset.
-    //
-    // Note this page now needs several fields the endpoint has no source for
-    // at all (first-response time, merge rate, status) — see the gap notes at
-    // the top of mockData.ts. Rendering `json` directly once the stub grows
-    // real numbers will still leave those columns empty, so treat the swap as
-    // "read what exists, keep the placeholder for the rest" rather than a
-    // one-line substitution.
-    // The timeout is doing real work, not being defensive for its own sake:
-    // a refused connection rejects immediately, but a port that *accepts*
-    // and then never answers (a container proxy holding 8000 open while the
-    // app behind it is down — the normal state of a half-started docker
-    // compose) leaves this promise pending forever, and with it the loading
-    // skeleton. An unbounded wait for a backend the page can already render
-    // without is the wrong trade.
-    fetch(`${API_URL}/dashboard/overview`, { signal: AbortSignal.timeout(4000) })
-      .then((res) => res.json())
-      .then((json) => setStatus(json.repos.length === 0 ? "empty" : "ready"))
-      // No backend running, CORS misconfigured, request timed out — show the
-      // placeholder dashboard rather than staying on the skeleton.
-      .catch(() => setStatus("ready"));
-  }, []);
+  if (isLoading) return <OverviewSkeleton />;
+  if (isError || !data) return <OverviewError onRetry={retry} />;
+  if (data.repos.length === 0 || !data.kpis) return <OverviewEmpty />;
 
-  if (status === "loading") return <OverviewSkeleton />;
-  if (status === "empty") return <OverviewEmpty onConnect={() => setStatus("ready")} />;
+  const { repos, kpis } = data;
 
   return (
     <div className="flex flex-col gap-6">
       <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
         <StatCard
           label="Avg. time to merge"
-          value={MOCK_OVERVIEW_STATS.avgMergeTime.value}
-          delta={MOCK_OVERVIEW_STATS.avgMergeTime.delta}
-          deltaLabel={MOCK_OVERVIEW_STATS.avgMergeTime.deltaLabel}
+          value={kpis.avgMergeTime.value}
+          delta={kpis.avgMergeTime.delta}
+          deltaLabel={kpis.avgMergeTime.deltaLabel}
           deltaDirection="down-is-good"
-          trend={MOCK_OVERVIEW_STATS.avgMergeTime.sparkline}
+          trend={kpis.avgMergeTime.sparkline}
           icon={<Clock size={16} />}
         />
         <StatCard
           label="Open issues"
-          value={MOCK_OVERVIEW_STATS.openIssues.value}
-          delta={MOCK_OVERVIEW_STATS.openIssues.delta}
-          deltaLabel={MOCK_OVERVIEW_STATS.openIssues.deltaLabel}
+          value={kpis.openIssues.value}
+          delta={kpis.openIssues.delta}
+          deltaLabel={kpis.openIssues.deltaLabel}
           deltaDirection="down-is-good"
-          trend={MOCK_OVERVIEW_STATS.openIssues.sparkline}
+          trend={kpis.openIssues.sparkline}
           icon={<CircleAlert size={16} />}
         />
         <StatCard
           label="Contributors, 90 days"
-          value={MOCK_OVERVIEW_STATS.contributors.value}
-          delta={MOCK_OVERVIEW_STATS.contributors.delta}
-          deltaLabel={MOCK_OVERVIEW_STATS.contributors.deltaLabel}
-          trend={MOCK_OVERVIEW_STATS.contributors.sparkline}
+          value={kpis.contributors.value}
+          delta={kpis.contributors.delta}
+          deltaLabel={kpis.contributors.deltaLabel}
+          trend={kpis.contributors.sparkline}
           icon={<Users size={16} />}
         />
         <StatCard
           label="PRs merged this week"
-          value={MOCK_OVERVIEW_STATS.prsThisWeek.value}
-          delta={MOCK_OVERVIEW_STATS.prsThisWeek.delta}
-          deltaLabel={MOCK_OVERVIEW_STATS.prsThisWeek.deltaLabel}
-          trend={MOCK_OVERVIEW_STATS.prsThisWeek.sparkline}
+          value={kpis.prsThisWeek.value}
+          delta={kpis.prsThisWeek.delta}
+          deltaLabel={kpis.prsThisWeek.deltaLabel}
+          trend={kpis.prsThisWeek.sparkline}
           icon={<TrendingUp size={16} />}
         />
       </div>
 
       <Suspense fallback={<TrendChartCardSkeleton />}>
-        <LazyTrendChartCard repos={MOCK_REPOS} metric={metric} onMetricChange={setMetric} />
+        <LazyTrendChartCard repos={repos} metric={metric} onMetricChange={setMetric} />
       </Suspense>
 
-      <TrackedRepositories />
+      <TrackedRepositories repos={repos} />
     </div>
   );
 }
 
-function TrackedRepositories() {
+function TrackedRepositories({ repos }: { repos: RepoStats[] }) {
   const navigate = useNavigate();
 
-  const columns: DataTableColumn<MockRepo>[] = [
+  const columns: DataTableColumn<RepoStats>[] = [
     {
       key: "id",
       header: "Repository",
@@ -137,7 +108,7 @@ function TrackedRepositories() {
       sortable: true,
       // Every metric column displays a formatted string but sorts on the raw
       // number behind it — otherwise "1,043" would sort before "612".
-      sortValue: (repo) => repo.merge.v,
+      sortValue: (repo) => repo.merge.v ?? 0,
       cell: (repo) => repo.merge.d,
       filterValue: (repo) => repo.merge.d,
     },
@@ -146,7 +117,7 @@ function TrackedRepositories() {
       header: "First response",
       align: "right",
       sortable: true,
-      sortValue: (repo) => repo.response.v,
+      sortValue: (repo) => repo.response.v ?? 0,
       cell: (repo) => repo.response.d,
       filterValue: (repo) => repo.response.d,
     },
@@ -155,7 +126,7 @@ function TrackedRepositories() {
       header: "Open issues",
       align: "right",
       sortable: true,
-      sortValue: (repo) => repo.issues.v,
+      sortValue: (repo) => repo.issues.v ?? 0,
       cell: (repo) => repo.issues.d,
       filterValue: (repo) => repo.issues.d,
     },
@@ -164,7 +135,7 @@ function TrackedRepositories() {
       header: "Contributors",
       align: "right",
       sortable: true,
-      sortValue: (repo) => repo.contrib.v,
+      sortValue: (repo) => repo.contrib.v ?? 0,
       cell: (repo) => repo.contrib.d,
       filterValue: (repo) => repo.contrib.d,
     },
@@ -173,7 +144,7 @@ function TrackedRepositories() {
       header: "Merge rate",
       align: "right",
       sortable: true,
-      sortValue: (repo) => repo.mergeRate.v,
+      sortValue: (repo) => repo.mergeRate.v ?? 0,
       cell: (repo) => repo.mergeRate.d,
       filterValue: (repo) => repo.mergeRate.d,
     },
@@ -181,7 +152,11 @@ function TrackedRepositories() {
       key: "spark",
       header: "90-day trend",
       cell: (repo) => (
-        <Sparkline data={repo.spark} className="h-8 w-24" style={{ color: repo.color }} />
+        <Sparkline
+          data={repo.spark}
+          className="h-8 w-24"
+          style={{ color: repoColor(repo.id, TRACKED_REPOS) }}
+        />
       ),
       // A sparkline contributes no text to search, and its raw array would
       // match nonsense like "46,44".
@@ -197,7 +172,7 @@ function TrackedRepositories() {
 
   // DataTable has no "default sort" prop (sorting is click-to-sort only) —
   // pre-sort the rows we hand it instead, fastest-merging repo first.
-  const rows = [...MOCK_REPOS].sort((a, b) => a.merge.v - b.merge.v);
+  const rows = [...repos].sort((a, b) => (a.merge.v ?? 0) - (b.merge.v ?? 0));
 
   return (
     <Card className="p-6">
@@ -228,7 +203,7 @@ function OverviewSkeleton() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
         <Skeleton className="size-3.5 rounded-full" />
-        <span>Syncing repositories from the GitHub API</span>
+        <span>Loading dashboard data</span>
       </div>
       <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
         {[1, 2, 3, 4].map((i) => (
@@ -255,13 +230,13 @@ function OverviewSkeleton() {
   );
 }
 
-function OverviewEmpty({ onConnect }: { onConnect: () => void }) {
+function OverviewEmpty() {
   const steps = [
-    ["1. Connect GitHub", "Read-only access to public repository metadata."],
-    ["2. Pick repositories", "Up to 25 repositories per workspace."],
+    ["1. Add a real GITHUB_TOKEN", "The sync job needs a Personal Access Token with public_repo scope in the backend's .env."],
+    ["2. Trigger a sync", "docker compose exec api python -c \"from app.services.sync import sync_all_repos; sync_all_repos.delay()\""],
     [
-      "3. Wait for the first sync",
-      "Around four minutes for a repository the size of react.",
+      "3. Wait for it to finish",
+      "A few minutes for a repo the size of react — check docker compose logs worker.",
     ],
   ];
 
@@ -270,15 +245,7 @@ function OverviewEmpty({ onConnect }: { onConnect: () => void }) {
       <EmptyState
         icon={<Inbox size={20} />}
         title="No repositories synced yet"
-        description="Connect a GitHub account and pick the repositories you want to track. The first sync pulls 90 days of pull requests, issues and commits."
-        action={
-          // No OAuth flow exists yet, so this stands in for one by revealing
-          // the placeholder dashboard — enough to review the layout behind
-          // the empty state without pretending a connection was made.
-          <Button size="sm" onClick={onConnect}>
-            Connect GitHub
-          </Button>
-        }
+        description="The tracked repos exist, but nothing has synced from GitHub yet — there's no mock data standing in for it anymore."
       />
       <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
         {steps.map(([title, description]) => (
@@ -293,5 +260,20 @@ function OverviewEmpty({ onConnect }: { onConnect: () => void }) {
         ))}
       </div>
     </div>
+  );
+}
+
+function OverviewError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <EmptyState
+      icon={<TriangleAlert size={20} />}
+      title="Couldn't load dashboard data"
+      description="The API didn't respond — check that the backend (docker compose up) is running."
+      action={
+        <Button size="sm" onClick={onRetry}>
+          Retry
+        </Button>
+      }
+    />
   );
 }
