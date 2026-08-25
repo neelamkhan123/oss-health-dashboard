@@ -1,5 +1,5 @@
 import { Card } from "@neelamkhan21/ui";
-import { mockCommitHeatmap, MOCK_TREND_MONTHS, type MockRepo } from "../lib/mockData";
+import { trailingMonths, type RepoStats } from "../lib/types";
 
 /**
  * A day's cell color, stepped through the primary series hue rather than
@@ -39,12 +39,14 @@ const GUTTER = 36;
 /**
  * A GitHub-style commit-activity grid: 53 weeks across, 7 days down.
  *
- * Placeholder content — renders a deterministic mock distribution (see
- * mockCommitHeatmap) until GET /repos/{id}/commits/heatmap exists. Swap the
- * `weeks` source for real per-day counts and nothing else here changes.
+ * `repo.heatmap` is real data — a Commit row per synced commit, grouped by
+ * day server-side (see compute_repo_full). It'll read as sparse/empty
+ * until a sync actually runs with a real GitHub token; that's the true
+ * state of the data, not a placeholder standing in for it.
  */
-export function CommitHeatmap({ repo }: { repo: MockRepo }) {
-  const weeks = mockCommitHeatmap(repo.id);
+export function CommitHeatmap({ repo }: { repo: RepoStats }) {
+  const weeks = repo.heatmap;
+  const months = trailingMonths();
 
   return (
     <Card className="p-6">
@@ -133,7 +135,7 @@ export function CommitHeatmap({ repo }: { repo: MockRepo }) {
             }}
             aria-hidden="true"
           >
-            {MOCK_TREND_MONTHS.map((month) => (
+            {months.map((month) => (
               <span key={month} className="flex-1">
                 {month}
               </span>

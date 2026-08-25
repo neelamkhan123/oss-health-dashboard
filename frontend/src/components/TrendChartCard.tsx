@@ -15,7 +15,8 @@ import {
   CartesianGrid,
   Tooltip as RechartsTooltip,
 } from "recharts";
-import { MOCK_TREND_MONTHS, type MockRepo } from "../lib/mockData";
+import { trailingMonths, repoColor, type RepoStats } from "../lib/types";
+import { TRACKED_REPOS } from "../lib/constants";
 
 /** Which of the two per-repo time series the trend chart is showing. */
 export type TrendMetric = "merge" | "issue";
@@ -49,16 +50,17 @@ export function TrendChartCard({
   onMetricChange,
   height = 280,
 }: {
-  repos: MockRepo[];
+  repos: RepoStats[];
   metric: TrendMetric;
   onMetricChange: (metric: TrendMetric) => void;
   height?: number;
 }) {
   const copy = METRIC_COPY[metric];
+  const months = trailingMonths();
 
   // One row per month, one column per repo — the shape both Recharts and
   // ChartDataTable want.
-  const data: TrendRow[] = MOCK_TREND_MONTHS.map((month, i) => {
+  const data: TrendRow[] = months.map((month, i) => {
     const row: TrendRow = { month };
     repos.forEach((repo) => {
       row[repo.id] = metric === "merge" ? repo.trendMerge[i] : repo.trendIssue[i];
@@ -100,7 +102,7 @@ export function TrendChartCard({
         legend={
           <ChartLegend>
             {repos.map((repo) => (
-              <ChartLegendItem key={repo.id} color={repo.color}>
+              <ChartLegendItem key={repo.id} color={repoColor(repo.id, TRACKED_REPOS)}>
                 {repo.id}
               </ChartLegendItem>
             ))}
@@ -131,7 +133,7 @@ export function TrendChartCard({
                 key={repo.id}
                 type="monotone"
                 dataKey={repo.id}
-                stroke={repo.color}
+                stroke={repoColor(repo.id, TRACKED_REPOS)}
                 strokeWidth={2}
                 dot={false}
               />

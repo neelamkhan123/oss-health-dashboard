@@ -8,19 +8,51 @@ import {
   AvatarGroup,
   Avatar,
   AvatarFallback,
+  EmptyState,
+  Skeleton,
   type DataTableColumn,
 } from "@neelamkhan21/ui";
-import { Star, ExternalLink } from "lucide-react";
+import { Star, ExternalLink, TriangleAlert } from "lucide-react";
 import { PageHeader } from "../layout/PageHeader";
 import { CommitHeatmap } from "../components/CommitHeatmap";
 import { MergeTimeDistribution } from "../components/MergeTimeDistribution";
-import { mockRepo, type MockRepo, type MockContributor } from "../lib/mockData";
-
-const API_URL = import.meta.env.VITE_API_URL;
+import { fetchRepoFull, fetchContributors } from "../lib/api";
+import { useFetch } from "../lib/useFetch";
+import type { ContributorRow, RepoStats } from "../lib/types";
 
 export function RepoDetail() {
   const { repoId } = useParams();
-  const repo = mockRepo(repoId);
+  const { isLoading, isError, data: repo, retry } = useFetch(repoId ?? "", () =>
+    fetchRepoFull(repoId!),
+  );
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-6">
+        <PageHeader title={repoId ?? "Repository"} />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (isError || !repo) {
+    return (
+      <div className="flex flex-col gap-6">
+        <PageHeader title={repoId ?? "Repository"} />
+        <EmptyState
+          icon={<TriangleAlert size={20} />}
+          title="Couldn't load this repository"
+          description={`No data for ${repoId} — it may not be tracked, or hasn't synced yet.`}
+          action={
+            <Button size="sm" onClick={retry}>
+              Retry
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -58,7 +90,7 @@ export function RepoDetail() {
 
       <MergeTimeDistribution repo={repo} />
 
-      <ContributorLeaderboard repo={repo} />
+      <ContributorLeaderboard repoId={repo.id} initialTop={repo.top} />
     </div>
   );
 }
@@ -74,7 +106,7 @@ export function RepoDetail() {
  * numbers says "these belong together and none of them are trending",
  * which is the truth, in a sixth of the vertical space.
  */
-function RepoStatsRow({ repo }: { repo: MockRepo }) {
+function RepoStatsRow({ repo }: { repo: RepoStats }) {
   const stats: [string, string][] = [
     ["Stars", repo.stars],
     ["Forks", repo.forks],
@@ -108,7 +140,7 @@ function initials(login: string): string {
   return (letters.slice(0, 2) || login.slice(0, 2)).toUpperCase();
 }
 
-const contributorColumns: DataTableColumn<MockContributor>[] = [
+const contributorColumns: DataTableColumn<ContributorRow>[] = [
   {
     key: "login",
     header: "Contributor",
@@ -123,92 +155,46 @@ const contributorColumns: DataTableColumn<MockContributor>[] = [
     ),
   },
   { key: "commits", header: "Commits", align: "right", sortable: true },
-  // NaN is how a row sourced from the real endpoint says "the API has no
-  // value for this column" — see ContributorLeaderboard. Rendered as an em
-  // dash rather than the string "NaN".
-  {
-    key: "prs",
-    header: "PRs merged",
-    align: "right",
-    sortable: true,
-    cell: (row) => (Number.isFinite(row.prs) ? row.prs : "—"),
-  },
-  {
-    key: "reviews",
-    header: "Reviews",
-    align: "right",
-    sortable: true,
-    cell: (row) => (Number.isFinite(row.reviews) ? row.reviews : "—"),
-  },
+  { key: "prs", header: "PRs merged", align: "right", sortable: true },
+  { key: "reviews", header: "Reviews", align: "right", sortable: true },
   {
     key: "last",
     header: "Last active",
     align: "right",
-    // Not sortable: these are pre-formatted relative strings ("2h ago",
-    // "12d ago"), so sorting them would sort alphabetically and put "12d"
-    // before "2h". Make it sortable once the API returns a real timestamp
-    // to sort on.
+    // Not sortable: pre-formatted relative strings ("2h ago", "12d ago")
+    // would sort alphabetically, putting "12d" before "2h".
     cell: (row) => (
       <span className="text-slate-500 dark:text-slate-400">{row.last}</span>
     ),
   },
 ];
 
-function ContributorLeaderboard({ repo }: { repo: MockRepo }) {
-  // Tagged with the repo it was fetched for, so navigating between two repos
-  // can't show one repo's contributors under the other's heading while the
-  // second fetch is in flight. Deriving the displayed rows from this is also
-  // what keeps the effect from having to reset state on every repo change.
-  const [fetched, setFetched] = useState<{
-    repoId: string;
-    rows: MockContributor[];
-  } | null>(null);
+/**
+ * `initialTop` (from the parent's already-fetched `/full` response) renders
+ * immediately; a `/contributors` fetch behind it fills in the complete,
+ * independently-sortable roster (`/full` caps at the top 10). Tagged with
+ * the repo it was fetched for, so navigating between two repos can't show
+ * one repo's contributors under the other's heading while the second fetch
+ * is in flight.
+ */
+function ContributorLeaderboard({
+  repoId,
+  initialTop,
+}: {
+  repoId: string;
+  initialTop: ContributorRow[];
+}) {
+  const [fetched, setFetched] = useState<{ repoId: string; rows: ContributorRow[] } | null>(null);
 
-  const rows = fetched?.repoId === repo.id ? fetched.rows : repo.top;
+  const rows = fetched?.repoId === repoId ? fetched.rows : initialTop;
 
   useEffect(() => {
-    // GET /repos/{id}/contributors is a real endpoint with a real shape, but
-    // two things keep it from filling this table today:
-    //
-    //  1. It's routed on the integer Repo.id, while this page is routed on
-    //     `owner/name` — so this call currently 422s on the path parameter.
-    //     Fixing it properly means either a /repos/by-name/{owner}/{name}
-    //     route or resolving the id first; both are backend work, out of
-    //     scope for this pass.
-    //  2. It returns `contributions` only. PRs merged, reviews and last
-    //     active are three fields the sync doesn't collect at all (see
-    //     mockData.ts), so real rows can fill two of five columns.
-    //
-    // Given that, real rows are merged in when they arrive — real login and
-    // commit count, an em dash for what the API can't answer — rather than
-    // being dropped or silently blended with invented numbers.
-    // Bounded for the same reason as Overview's: a port that accepts and
-    // never answers would otherwise leave this request pending for the life
-    // of the page. Nothing here blocks rendering, but the leak is pointless.
-    fetch(`${API_URL}/dashboard/repos/${encodeURIComponent(repo.id)}/contributors`, {
-      signal: AbortSignal.timeout(4000),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(String(res.status));
-        return res.json();
-      })
-      .then((data: { username: string; contributions: number }[]) => {
-        if (data.length === 0) return;
-        setFetched({
-          repoId: repo.id,
-          rows: data.map((c) => ({
-            login: c.username,
-            commits: c.contributions,
-            prs: NaN,
-            reviews: NaN,
-            last: "—",
-          })),
-        });
-      })
+    fetchContributors(repoId)
+      .then((data) => setFetched({ repoId, rows: data }))
       .catch(() => {
-        // Placeholder rows are already in state — nothing to do.
+        // initialTop is already in state — nothing to do.
       });
-  }, [repo]);
+  }, [repoId]);
 
   // DataTable has no "default sort" prop (sorting is click-to-sort only) —
   // pre-sort the rows we hand it instead, most commits first.
@@ -222,7 +208,7 @@ function ContributorLeaderboard({ repo }: { repo: MockRepo }) {
             Contributor leaderboard
           </h2>
           <p className="m-0 text-xs text-slate-500 dark:text-slate-400">
-            Sortable. Ranked by commits in the selected range.
+            Sortable. Ranked by commits.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2.5">

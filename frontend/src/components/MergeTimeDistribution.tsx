@@ -12,20 +12,21 @@ import {
   MERGE_TIME_BUCKETS,
   PERCENTILE_SCALE_DAYS,
   percentileDays,
-  type MockRepo,
-} from "../lib/mockData";
+  type RepoStats,
+} from "../lib/types";
 
 type BucketRow = { bucket: string; prs: number };
 
 /**
  * How long merged PRs stayed open: a histogram, and the percentiles that
- * summarise its tail.
- *
- * Placeholder content — both come from the per-repo mock dataset until
- * GET /repos/{id}/merge-time-distribution exists. See BUILD_GUIDE.md
- * Part 9.9 for the bucket-edge and percentile-source decisions still open.
+ * summarise its tail. Both come from `repo.dist`/`repo.pct`, computed
+ * server-side in compute_repo_full from every merged PR's own
+ * created_at/merged_at — real durations, bucketed and ranked in Python
+ * once per request rather than in SQL, since the row counts here are
+ * small enough that fetching once and bucketing client-side (well,
+ * server-side) is simpler than a SQL histogram.
  */
-export function MergeTimeDistribution({ repo }: { repo: MockRepo }) {
+export function MergeTimeDistribution({ repo }: { repo: RepoStats }) {
   const data: BucketRow[] = MERGE_TIME_BUCKETS.map((bucket, i) => ({
     bucket,
     prs: repo.dist[i],
@@ -77,7 +78,7 @@ export function MergeTimeDistribution({ repo }: { repo: MockRepo }) {
  * *shape* they trace — how far p95 runs past p50. Four equal boxes state
  * the numbers but hide that shape; bars on a shared scale are the shape.
  */
-function Percentiles({ repo }: { repo: MockRepo }) {
+function Percentiles({ repo }: { repo: RepoStats }) {
   return (
     <Card className="flex flex-col gap-4 p-6">
       <h2 className="m-0 text-sm font-semibold text-slate-950 dark:text-white">

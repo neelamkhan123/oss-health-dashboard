@@ -5,6 +5,8 @@ import {
   Card,
   StatCard,
   Badge,
+  Skeleton,
+  Button,
   Table,
   TableHeader,
   TableBody,
@@ -12,10 +14,14 @@ import {
   TableHead,
   TableCell,
 } from "@neelamkhan21/ui";
-import { Layers } from "lucide-react";
+import { Layers, TriangleAlert } from "lucide-react";
 import { LazyTrendChartCard, TrendChartCardSkeleton } from "../components/LazyTrendChartCard";
 import type { TrendMetric } from "../components/TrendChartCard";
-import { MOCK_REPOS, type MockRepo, type MetricValue } from "../lib/mockData";
+import { fetchOverview } from "../lib/api";
+import { repoColor } from "../lib/types";
+import { TRACKED_REPOS } from "../lib/constants";
+import { useFetch } from "../lib/useFetch";
+import type { RepoStats, MetricValue } from "../lib/types";
 
 /**
  * The rows of the comparison table, in reading order.
@@ -25,7 +31,7 @@ import { MOCK_REPOS, type MockRepo, type MetricValue } from "../lib/mockData";
  * maximum in every row would call the slowest repo the winner half the
  * time. It's the same distinction StatCard draws with `deltaDirection`.
  */
-const COMPARE_ROWS: { label: string; read: (repo: MockRepo) => MetricValue; lower: boolean }[] = [
+const COMPARE_ROWS: { label: string; read: (repo: RepoStats) => MetricValue; lower: boolean }[] = [
   { label: "Avg. time to merge", read: (r) => r.merge, lower: true },
   { label: "Median first response", read: (r) => r.response, lower: true },
   { label: "Merge rate", read: (r) => r.mergeRate, lower: false },
@@ -35,15 +41,23 @@ const COMPARE_ROWS: { label: string; read: (repo: MockRepo) => MetricValue; lowe
 ];
 
 export function Compare() {
-  const [selectedIds, setSelectedIds] = useState<string[]>(
-    MOCK_REPOS.map((repo) => repo.id),
-  );
+  const { isLoading, isError, data, retry } = useFetch("compare-overview", fetchOverview);
+  const [selectedIds, setSelectedIds] = useState<string[]>(TRACKED_REPOS);
   const [metric, setMetric] = useState<TrendMetric>("merge");
 
-  // Filtered from MOCK_REPOS rather than built from the toggle order, so
-  // columns and chart series stay in the sidebar's order however the
-  // toggles were clicked.
-  const selected = MOCK_REPOS.filter((repo) => selectedIds.includes(repo.id));
+  const repos = data?.repos ?? [];
+  const status: "loading" | "error" | "empty" | "ready" = isLoading
+    ? "loading"
+    : isError
+      ? "error"
+      : repos.length === 0
+        ? "empty"
+        : "ready";
+
+  // Filtered from the fetched list rather than built from the toggle
+  // order, so columns and chart series stay in the tracked-repo order
+  // however the toggles were clicked.
+  const selected = repos.filter((repo) => selectedIds.includes(repo.id));
 
   return (
     <div className="flex flex-col gap-6">
@@ -58,32 +72,57 @@ export function Compare() {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-          {MOCK_REPOS.map((repo) => (
+          {TRACKED_REPOS.map((repoId) => (
             <Toggle
-              key={repo.id}
+              key={repoId}
               variant="outline"
               size="sm"
-              pressed={selectedIds.includes(repo.id)}
+              pressed={selectedIds.includes(repoId)}
               onPressedChange={(pressed: boolean) =>
                 setSelectedIds((prev) =>
-                  pressed ? [...prev, repo.id] : prev.filter((id) => id !== repo.id),
+                  pressed ? [...prev, repoId] : prev.filter((id) => id !== repoId),
                 )
               }
             >
-              {repo.short}
+              {repoId.split("/")[1] ?? repoId}
             </Toggle>
           ))}
         </div>
       </div>
 
-      {selected.length === 0 ? (
+      {status === "loading" && <CompareSkeleton />}
+
+      {status === "error" && (
+        <EmptyState
+          icon={<TriangleAlert size={20} />}
+          title="Couldn't load comparison data"
+          description="The API didn't respond — check that the backend (docker compose up) is running."
+          action={
+            <Button size="sm" onClick={retry}>
+              Retry
+            </Button>
+          }
+        />
+      )}
+
+      {status === "empty" && (
+        <EmptyState
+          icon={<Layers size={20} />}
+          title="No repositories synced yet"
+          description="Nothing to compare until at least one tracked repo has synced from GitHub."
+        />
+      )}
+
+      {status === "ready" && selected.length === 0 && (
         <EmptyState
           icon={<Layers size={20} />}
           title="No repositories selected"
           description="Choose at least two repositories above to compare them."
           live
         />
-      ) : (
+      )}
+
+      {status === "ready" && selected.length > 0 && (
         <>
           <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
             {selected.map((repo) => (
@@ -98,7 +137,7 @@ export function Compare() {
                 // gives it a tone class; a descendant selector out-specifies
                 // that without having to fight the merge order. These cards
                 // have no `icon`, so the sparkline is the only svg matched.
-                style={{ "--repo-color": repo.color } as CSSProperties}
+                style={{ "--repo-color": repoColor(repo.id, TRACKED_REPOS) } as CSSProperties}
                 className="[&_svg]:text-(--repo-color)"
               >
                 {/* The caption goes in `children`, not `deltaLabel`:
@@ -130,6 +169,22 @@ export function Compare() {
   );
 }
 
+function CompareSkeleton() {
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
+        {[1, 2, 3].map((i) => (
+          <Card key={i} className="flex flex-col gap-4 p-5">
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="h-7 w-22" />
+          </Card>
+        ))}
+      </div>
+      <Skeleton className="h-56 w-full" />
+    </div>
+  );
+}
+
 /**
  * The metric table, transposed: one column per repo, one row per metric.
  *
@@ -140,7 +195,7 @@ export function Compare() {
  * arrangement where "who's fastest" is a glance rather than a search — and
  * it's what makes marking the best value per row possible at all.
  */
-function CoreMetrics({ selected }: { selected: MockRepo[] }) {
+function CoreMetrics({ selected }: { selected: RepoStats[] }) {
   return (
     <Card className="p-6">
       <div className="mb-3 flex flex-col gap-1.5">
@@ -169,8 +224,16 @@ function CoreMetrics({ selected }: { selected: MockRepo[] }) {
           </TableHeader>
           <TableBody>
             {COMPARE_ROWS.map((row) => {
-              const values = selected.map((repo) => row.read(repo).v);
-              const best = row.lower ? Math.min(...values) : Math.max(...values);
+              const values = selected
+                .map((repo) => row.read(repo).v)
+                .filter((v): v is number => v !== null);
+              // A tie across every value (most often 0 across the board,
+              // before a metric has any real data yet) isn't a "best" —
+              // marking all of them would say nothing except that nothing
+              // has synced. Only a value strictly ahead of at least one
+              // other counts.
+              const allTied = values.length > 0 && values.every((v) => v === values[0]);
+              const best = values.length && !allTied ? (row.lower ? Math.min(...values) : Math.max(...values)) : null;
               return (
                 <TableRow key={row.label}>
                   <TableCell className="text-slate-600 dark:text-slate-300">
@@ -178,9 +241,10 @@ function CoreMetrics({ selected }: { selected: MockRepo[] }) {
                   </TableCell>
                   {selected.map((repo) => {
                     const value = row.read(repo);
-                    // Nothing is "best" when there's only one column —
-                    // a single repo compared against itself always wins.
-                    const isBest = selected.length > 1 && value.v === best;
+                    // Nothing is "best" when there's only one column, or
+                    // when this repo has no value for the row at all (e.g.
+                    // response time before any first-response is backfilled).
+                    const isBest = selected.length > 1 && best !== null && value.v === best;
                     return (
                       <TableCell key={repo.id} className="text-right tabular-nums">
                         <span
