@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   StatCard,
@@ -12,7 +12,8 @@ import {
   type DataTableColumn,
 } from "@neelamkhan21/ui";
 import { Clock, CircleAlert, Users, TrendingUp, Inbox, Folder, Plus } from "lucide-react";
-import { TrendChartCard, type TrendMetric } from "../components/TrendChartCard";
+import { LazyTrendChartCard, TrendChartCardSkeleton } from "../components/LazyTrendChartCard";
+import type { TrendMetric } from "../components/TrendChartCard";
 import {
   MOCK_REPOS,
   MOCK_OVERVIEW_STATS,
@@ -97,7 +98,9 @@ export function Overview() {
         />
       </div>
 
-      <TrendChartCard repos={MOCK_REPOS} metric={metric} onMetricChange={setMetric} />
+      <Suspense fallback={<TrendChartCardSkeleton />}>
+        <LazyTrendChartCard repos={MOCK_REPOS} metric={metric} onMetricChange={setMetric} />
+      </Suspense>
 
       <TrackedRepositories />
     </div>

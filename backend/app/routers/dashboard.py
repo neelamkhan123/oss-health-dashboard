@@ -1,7 +1,9 @@
 # backend/app/routers/dashboard.py
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.services.db import get_db
+from app.services.cache import cache_get, cache_set
 from app.models.models import Contributor, Repo, PullRequest
 
 router = APIRouter()
@@ -25,7 +27,42 @@ def repo_stats_naive(repo_id: int, db: Session = Depends(get_db)):
         "avg_merge_time_hours": round(avg_merge_seconds / 3600, 1),
         "total_prs": len(repo.pull_requests),
     }
-    
+
+@router.get("/repos/{repo_id}/stats")
+def repo_stats_optimized(repo_id: int, db: Session = Depends(get_db)):
+    cache_key = f"repo_stats:{repo_id}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    repo = db.query(Repo).filter_by(id=repo_id).first()
+
+    result = (
+        db.query(
+            func.avg(
+                func.extract("epoch", PullRequest.merged_at - PullRequest.created_at)
+            ).label("avg_seconds"),
+            func.count(PullRequest.id).label("total"),
+        )
+        .filter(PullRequest.repo_id == repo_id, PullRequest.merged_at.isnot(None))
+        .first()
+    )
+
+    # func.avg(func.extract(...)) comes back from Postgres as a Decimal, not a
+    # float — round() preserves that (Decimal in, Decimal out), and Decimal
+    # isn't JSON-serializable by the stdlib `json` module cache_set uses (only
+    # FastAPI's own response encoder knows how to coerce it). Cast to float
+    # before doing arithmetic on it, so the value is a plain float everywhere
+    # downstream, not just in the uncached path.
+    avg_seconds = float(result.avg_seconds) if result.avg_seconds is not None else 0.0
+    response = {
+        "repo": repo.full_name,
+        "avg_merge_time_hours": round(avg_seconds / 3600, 1),
+        "total_prs": result.total,
+    }
+    cache_set(cache_key, response, ttl_seconds=900)  # 15 min, matches sync frequency
+    return response
+
 @router.get("/overview")
 def overview(db: Session = Depends(get_db)):
     repos = db.query(Repo).all()
