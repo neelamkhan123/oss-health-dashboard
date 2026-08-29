@@ -11,16 +11,19 @@ export const LazyTrendChartCard = lazy(() =>
 );
 
 /**
- * Suspense fallback for LazyTrendChartCard — sized to match the real card
- * (header + a 280px plot) so its arrival doesn't shift the page, the same
- * concern the library's own Skeleton docs describe. Shared by Overview and
- * Compare, the same two callers that share LazyTrendChartCard itself.
+ * Suspense fallback for LazyTrendChartCard — sized to match the real layout
+ * (a title row above a card holding a 280px plot) so its arrival doesn't
+ * shift the page, the same concern the library's own Skeleton docs
+ * describe. Shared by Overview and Compare, the same two callers that
+ * share LazyTrendChartCard itself.
  */
 export function TrendChartCardSkeleton() {
   return (
-    <Card className="flex flex-col gap-5 p-6">
+    <div className="flex flex-col gap-3.5">
       <Skeleton className="h-4 w-45" />
-      <Skeleton className="h-70 w-full" />
-    </Card>
+      <Card className="p-6">
+        <Skeleton className="h-70 w-full" />
+      </Card>
+    </div>
   );
 }
