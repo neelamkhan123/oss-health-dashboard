@@ -9,18 +9,8 @@ import {
   Badge,
   Button,
   Sparkline,
-  Dialog,
-  DialogTrigger,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogClose,
   Input,
-  buttonVariants,
   toast,
-  useDialog,
   type DataTableColumn,
 } from "@neelamkhan21/ui";
 import { Clock, CircleAlert, Users, TrendingUp, Inbox, Folder, Plus, TriangleAlert } from "lucide-react";
@@ -210,7 +200,7 @@ function TrackedRepositories({
             Last {days} days. Click a repository for the full breakdown.
           </p>
         </div>
-        <AddRepositoryButton />
+        <AddRepositoryInline />
       </div>
       <DataTable columns={columns} data={rows} getRowId={(repo) => repo.id} />
     </Card>
@@ -218,40 +208,12 @@ function TrackedRepositories({
 }
 
 /**
- * Opens a dialog for tracking a new public GitHub repo — its data starts
- * syncing as soon as the backend confirms the repo actually exists.
- * `Dialog` itself is left uncontrolled; only `openCount` is tracked here,
- * purely to key `AddRepositoryForm` so each open mounts a fresh instance.
- * That's what resets the form between attempts — the dialog's own
- * `<dialog>` element persists across opens (shown/hidden, not unmounted),
- * so without a fresh instance a second open would still be showing the
- * previous attempt's error or a stale name. A key-driven remount avoids
- * needing an effect to reset that state by hand.
+ * Tracks a new public GitHub repo inline — no dialog, since there's room
+ * for it directly in the table's own header now that the trend chart (see
+ * git history) no longer sits above this card. Its data starts syncing as
+ * soon as the backend confirms the repo actually exists.
  */
-function AddRepositoryButton() {
-  const [openCount, setOpenCount] = useState(0);
-  return (
-    <Dialog onOpenChange={(open) => open && setOpenCount((c) => c + 1)}>
-      <DialogTrigger className={`${buttonVariants({ variant: "ghost", size: "sm" })} gap-1.5`}>
-        <Plus size={14} aria-hidden="true" />
-        Add repository
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Track a new repository</DialogTitle>
-          <DialogDescription>
-            Any public GitHub repository. Its data starts syncing in the background as soon as
-            it's added.
-          </DialogDescription>
-        </DialogHeader>
-        <AddRepositoryForm key={openCount} />
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AddRepositoryForm() {
-  const { onOpenChange } = useDialog();
+function AddRepositoryInline() {
   const { refresh } = useTrackedRepos();
   const [fullName, setFullName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -260,6 +222,7 @@ function AddRepositoryForm() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const trimmed = fullName.trim();
+    if (!trimmed) return;
     setIsSubmitting(true);
     setError(null);
     try {
@@ -270,39 +233,32 @@ function AddRepositoryForm() {
         variant: "success",
       });
       refresh();
-      onOpenChange(false);
+      setFullName("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't add this repository.");
+    } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <label
-          htmlFor="repo-full-name"
-          className="text-xs font-medium text-slate-700 dark:text-slate-300"
-        >
-          Repository
-        </label>
+    <form onSubmit={handleSubmit} className="flex flex-col items-end gap-1.5">
+      <div className="flex items-center gap-2">
         <Input
-          id="repo-full-name"
+          aria-label="Repository to track (owner/repo)"
           placeholder="owner/repo"
           value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          autoFocus
+          onChange={(e) => {
+            setFullName(e.target.value);
+            if (error) setError(null);
+          }}
+          className="h-8 w-52 text-xs"
         />
-        {error ? <p className="text-xs text-red-600 dark:text-red-400">{error}</p> : null}
-      </div>
-      <DialogFooter>
-        <DialogClose className={buttonVariants({ variant: "outline", size: "sm" })}>
-          Cancel
-        </DialogClose>
-        <Button type="submit" size="sm" loading={isSubmitting} disabled={!fullName.trim()}>
+        <Button type="submit" size="sm" icon={<Plus size={14} />} loading={isSubmitting} disabled={!fullName.trim()}>
           Add
         </Button>
-      </DialogFooter>
+      </div>
+      {error ? <p className="text-xs text-red-600 dark:text-red-400">{error}</p> : null}
     </form>
   );
 }
