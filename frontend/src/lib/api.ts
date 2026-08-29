@@ -88,6 +88,35 @@ export async function addTrackedRepo(fullName: string): Promise<{ fullName: stri
   return body;
 }
 
+/** Whether GITHUB_TOKEN's own account is currently watching this repo on
+ *  GitHub — see the backend endpoint's own docstring for why this is a
+ *  live GitHub call rather than anything cached. */
+export function fetchWatchStatus(repoFullName: string): Promise<{ watching: boolean }> {
+  return getJSON(`/dashboard/repos/${encodeURIComponent(repoFullName)}/watch`);
+}
+
+/** Shared by watchRepo/unwatchRepo below: both can fail with a specific,
+ *  worth-showing reason (most notably a 403 — GITHUB_TOKEN lacking
+ *  permission to watch repos on GitHub's behalf), same reasoning as
+ *  addTrackedRepo's own error handling above. */
+async function watchRequest(repoFullName: string, method: "PUT" | "DELETE"): Promise<{ watching: boolean }> {
+  const path = `/dashboard/repos/${encodeURIComponent(repoFullName)}/watch`;
+  const res = await fetch(`${API_URL}${path}`, { method, signal: AbortSignal.timeout(TIMEOUT_MS) });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(body?.detail || `${path} -> ${res.status}`);
+  }
+  return body;
+}
+
+export function watchRepo(repoFullName: string): Promise<{ watching: boolean }> {
+  return watchRequest(repoFullName, "PUT");
+}
+
+export function unwatchRepo(repoFullName: string): Promise<{ watching: boolean }> {
+  return watchRequest(repoFullName, "DELETE");
+}
+
 type ContributorsResponse = {
   username: string;
   avatarUrl: string | null;

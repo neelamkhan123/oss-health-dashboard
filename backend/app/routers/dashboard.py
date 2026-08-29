@@ -329,6 +329,22 @@ def compute_repo_full(db: Session, repo: Repo, days: int = 90) -> dict:
         .all()
     )
 
+    # A genuinely different ranking from top_contributors above, not a
+    # slice of it: that one is GitHub's all-time cumulative contributions
+    # count, unrelated to any window. This is who's actually been active in
+    # the last 30 days — its own fixed window, independent of `days` (the
+    # page's date-range picker), so the "this month" label it backs stays
+    # true regardless of what range is selected elsewhere on the page.
+    month_start = datetime.datetime.utcnow() - datetime.timedelta(days=30)
+    top_this_month = (
+        db.query(Commit.author, func.count(Commit.id).label("commits"))
+        .filter(Commit.repo_id == repo.id, Commit.authored_at >= month_start, Commit.author.isnot(None))
+        .group_by(Commit.author)
+        .order_by(func.count(Commit.id).desc())
+        .limit(5)
+        .all()
+    )
+
     return {
         "id": repo.full_name,
         "lang": repo.language or "—",
@@ -362,6 +378,9 @@ def compute_repo_full(db: Session, repo: Repo, days: int = 90) -> dict:
                 "last": _relative(c.last_active_at),
             }
             for c in top_contributors
+        ],
+        "topThisMonth": [
+            {"login": author, "commits": commits} for author, commits in top_this_month
         ],
         "heatmap": heatmap,
     }
@@ -446,6 +465,81 @@ def repo_contributors(repo_full_name: str, db: Session = Depends(get_db)):
         }
         for c in contributors
     ]
+
+@router.get("/repos/{repo_full_name:path}/watch")
+def get_watch_status(repo_full_name: str, db: Session = Depends(get_db)):
+    """Whether GITHUB_TOKEN's own account is currently watching this repo on
+    GitHub — a real subscription, not anything tracked in our own DB. Reads
+    straight from GitHub rather than caching: subscribing is rare enough
+    that a live call on page load is cheap, and caching a boolean this
+    binary would only risk showing a stale "not watching" right after the
+    Watch button was just clicked."""
+    get_repo_or_404(db, repo_full_name)
+    try:
+        # follow_redirects: GitHub 301s this exact endpoint to its
+        # numeric-id form (`/repositories/{id}/subscription`) for at least
+        # some repos — confirmed against the real API, not hypothetical —
+        # same reason sync.py's own client sets this.
+        response = httpx.get(
+            f"{GITHUB_API}/repos/{repo_full_name}/subscription",
+            headers=HEADERS,
+            timeout=10,
+            follow_redirects=True,
+        )
+    except httpx.HTTPError:
+        raise HTTPException(502, "Couldn't reach GitHub to check watch status")
+    if response.status_code == 404:
+        return {"watching": False}
+    if response.status_code == 403:
+        raise HTTPException(403, "GITHUB_TOKEN doesn't have permission to read watch status on GitHub's behalf")
+    if response.status_code != 200:
+        raise HTTPException(502, f"GitHub returned an unexpected error ({response.status_code})")
+    return {"watching": bool(response.json().get("subscribed"))}
+
+@router.put("/repos/{repo_full_name:path}/watch")
+def watch_repo(repo_full_name: str, db: Session = Depends(get_db)):
+    """Subscribes GITHUB_TOKEN's own account to the repo's notifications —
+    the same effect as clicking "Watch" on github.com, for whichever
+    account that token belongs to. `ignored: false` matters: PUTting a
+    subscription with only `subscribed: true` still leaves a prior
+    "ignored" state in place on GitHub's side, which would mute the very
+    notifications this is meant to turn on."""
+    get_repo_or_404(db, repo_full_name)
+    try:
+        response = httpx.put(
+            f"{GITHUB_API}/repos/{repo_full_name}/subscription",
+            headers=HEADERS,
+            json={"subscribed": True, "ignored": False},
+            timeout=10,
+            follow_redirects=True,
+        )
+    except httpx.HTTPError:
+        raise HTTPException(502, "Couldn't reach GitHub to watch this repository")
+    if response.status_code == 403:
+        raise HTTPException(403, "GITHUB_TOKEN doesn't have permission to watch repositories on GitHub's behalf")
+    if response.status_code != 200:
+        raise HTTPException(502, f"GitHub returned an unexpected error ({response.status_code})")
+    return {"watching": True}
+
+@router.delete("/repos/{repo_full_name:path}/watch")
+def unwatch_repo(repo_full_name: str, db: Session = Depends(get_db)):
+    """Removes the subscription entirely (not the same as "ignore", which
+    GitHub tracks as its own state) — the counterpart to watch_repo above."""
+    get_repo_or_404(db, repo_full_name)
+    try:
+        response = httpx.delete(
+            f"{GITHUB_API}/repos/{repo_full_name}/subscription",
+            headers=HEADERS,
+            timeout=10,
+            follow_redirects=True,
+        )
+    except httpx.HTTPError:
+        raise HTTPException(502, "Couldn't reach GitHub to unwatch this repository")
+    if response.status_code == 403:
+        raise HTTPException(403, "GITHUB_TOKEN doesn't have permission to change watch status on GitHub's behalf")
+    if response.status_code not in (204, 404):
+        raise HTTPException(502, f"GitHub returned an unexpected error ({response.status_code})")
+    return {"watching": False}
 
 @router.get("/overview")
 def overview(days: int = DaysParam, db: Session = Depends(get_db)):

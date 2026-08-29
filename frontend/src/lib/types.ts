@@ -49,6 +49,10 @@ export type RepoStats = {
   /** [label, value] pairs, value written as hours ("11h") or days ("2.1d"). */
   pct: [string, string][];
   top: ContributorRow[];
+  /** Top 5 contributors by commit count in the trailing 30 days — a
+   *  genuinely different ranking from `top` above (all-time contributions),
+   *  not a slice of it. Backs the leaderboard's "Top this month" avatars. */
+  topThisMonth: { login: string; commits: number }[];
   /** 53 weeks x 7 days of commit counts, oldest week first. */
   heatmap: number[][];
 };
