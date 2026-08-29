@@ -22,21 +22,36 @@ import {
   type DateRange,
 } from "@neelamkhan21/ui";
 import { LayoutDashboard, Activity, Folder, Zap } from "lucide-react";
-import type { MouseEvent, ReactNode } from "react";
+import { Fragment, type MouseEvent, type ReactNode } from "react";
 import { useDateRange } from "../lib/dateRangeContext";
 import { useSyncStatus } from "../lib/syncContext";
 import { useTrackedRepos } from "../lib/trackedReposContext";
 
-/** The trailing breadcrumb crumb for the current route. */
-function currentCrumb(pathname: string): string {
-  if (pathname === "/") return "Overview";
-  if (pathname === "/compare") return "Compare";
+/** One segment of the breadcrumb trail. `href` is omitted for the current
+ *  page — the trailing crumb, or a middle one that isn't actually a
+ *  distinct navigable page (there is no standalone "Repositories" view). */
+type Crumb = { label: string; href?: string };
+
+/**
+ * The breadcrumb trail for the current route.
+ *
+ * Overview and Compare are top-level, sibling views (see the Sidebar's own
+ * "Views" group) — neither is nested under the other, or under some
+ * "Repositories" hub that doesn't exist as an actual page, so each gets a
+ * single, unlinked crumb naming itself. A repo's detail page *is* reached
+ * by drilling into one specific repo from Overview's own table (or the
+ * Sidebar's mirror of it) — so that's the one route that gets a real
+ * two-level trail, branching off Overview specifically.
+ */
+function crumbsFor(pathname: string): Crumb[] {
+  if (pathname === "/compare") return [{ label: "Compare" }];
   if (pathname.startsWith("/repos/")) {
     // The full owner/repo, not just the name — the crumb should read the
     // same as the page's own <h1> and the sidebar entry that led here.
-    return decodeURIComponent(pathname.slice("/repos/".length));
+    const repo = decodeURIComponent(pathname.slice("/repos/".length));
+    return [{ label: "Overview", href: "/" }, { label: repo }];
   }
-  return "Overview";
+  return [{ label: "Overview" }];
 }
 
 export function AppShell() {
@@ -91,7 +106,7 @@ export function AppShell() {
       </Sidebar>
 
       <div className="flex min-w-0 flex-1 flex-col bg-slate-50 dark:bg-slate-900">
-        <Topbar crumb={currentCrumb(location.pathname)} />
+        <Topbar crumbs={crumbsFor(location.pathname)} />
         <main className="flex-1 overflow-y-auto p-6">
           <Outlet />
         </main>
@@ -148,17 +163,20 @@ function formatRange(range: DateRange): string {
   return `${formatter.format(range.from)} – ${formatter.format(range.to)}`;
 }
 
-function Topbar({ crumb }: { crumb: string }) {
+function Topbar({ crumbs }: { crumbs: Crumb[] }) {
   const navigate = useNavigate();
   const { range, setRange } = useDateRange();
   const { phase, runSync } = useSyncStatus();
 
-  const handleHomeClick = (e: MouseEvent<HTMLAnchorElement>) => {
+  // One handler, parameterized by target — every crumb with an `href`
+  // navigates the same client-side way (see SidebarNavButton below for the
+  // identical reasoning on why this isn't a plain `<a>`/`Link`).
+  const handleCrumbClick = (href: string) => (e: MouseEvent<HTMLAnchorElement>) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
       return;
     }
     e.preventDefault();
-    navigate("/");
+    navigate(href);
   };
 
   // Just a busy state here — the numbers (and the Stop button) live on the
@@ -171,15 +189,20 @@ function Topbar({ crumb }: { crumb: string }) {
       <Separator orientation="vertical" className="h-5" />
       <Breadcrumb>
         <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/" onClick={handleHomeClick}>
-              Repositories
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{crumb}</BreadcrumbPage>
-          </BreadcrumbItem>
+          {crumbs.map((crumb, i) => (
+            <Fragment key={crumb.label}>
+              {i > 0 ? <BreadcrumbSeparator /> : null}
+              <BreadcrumbItem>
+                {crumb.href ? (
+                  <BreadcrumbLink href={crumb.href} onClick={handleCrumbClick(crumb.href)}>
+                    {crumb.label}
+                  </BreadcrumbLink>
+                ) : (
+                  <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
+                )}
+              </BreadcrumbItem>
+            </Fragment>
+          ))}
         </BreadcrumbList>
       </Breadcrumb>
       <div className="flex-1" />
