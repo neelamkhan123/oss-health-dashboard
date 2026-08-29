@@ -137,7 +137,7 @@ export function Topbar({ crumbs }: { crumbs: Crumb[] }) {
   }, []);
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 px-3 dark:border-slate-800 dark:bg-slate-950">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 px-3 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
       <SidebarTrigger />
       {/* A single crumb ("Overview", "Compare") names a top-level view the
        * Sidebar already highlights as active — showing it here just

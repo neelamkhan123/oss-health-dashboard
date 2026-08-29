@@ -20,7 +20,17 @@ export function AppShell() {
   const { repoNames } = useTrackedRepos();
 
   return (
-    <SidebarProvider>
+    // h-svh + overflow-hidden, on top of the library's own min-h-svh:
+    // SidebarProvider's own class only sets a *floor* on its height, not a
+    // ceiling, so with no cap it grows to fit whatever <main> renders (a
+    // long repo-detail page measured at 6700px+) rather than staying
+    // pinned to the viewport. That's what let the whole page scroll as one
+    // unit — dragging the sidebar's own h-svh <aside> along with it, since
+    // "always exactly one viewport tall" and "never moves as the page
+    // scrolls" aren't the same guarantee. Capping the actual height here
+    // gives <main>'s existing flex-1 overflow-y-auto a bounded height to
+    // size against, so it becomes the only thing that scrolls.
+    <SidebarProvider className="h-svh overflow-hidden">
       <Sidebar>
         <SidebarHeader>
           <span className="flex items-center gap-2.5 px-2 text-sm font-semibold tracking-tight text-slate-950 dark:text-white">
