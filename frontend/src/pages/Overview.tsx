@@ -80,6 +80,8 @@ export function Overview() {
         />
       </div>
 
+      <AddRepositoryInline />
+
       <TrackedRepositories repos={repos} days={days} trackedRepoNames={repoNames} />
     </div>
   );
@@ -191,16 +193,13 @@ function TrackedRepositories({
 
   return (
     <Card className="p-6">
-      <div className="mb-3 flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-1.5">
-          <h2 className="m-0 text-sm font-semibold text-slate-950 dark:text-white">
-            Tracked repositories
-          </h2>
-          <p className="m-0 text-xs text-slate-500 dark:text-slate-400">
-            Last {days} days. Click a repository for the full breakdown.
-          </p>
-        </div>
-        <AddRepositoryInline />
+      <div className="mb-3 flex flex-col gap-1.5">
+        <h2 className="m-0 text-sm font-semibold text-slate-950 dark:text-white">
+          Tracked repositories
+        </h2>
+        <p className="m-0 text-xs text-slate-500 dark:text-slate-400">
+          Last {days} days. Click a repository for the full breakdown.
+        </p>
       </div>
       <DataTable columns={columns} data={rows} getRowId={(repo) => repo.id} />
     </Card>
@@ -208,10 +207,12 @@ function TrackedRepositories({
 }
 
 /**
- * Tracks a new public GitHub repo inline — no dialog, since there's room
- * for it directly in the table's own header now that the trend chart (see
- * git history) no longer sits above this card. Its data starts syncing as
- * soon as the backend confirms the repo actually exists.
+ * Tracks a new public GitHub repo — its own row between the KPI cards and
+ * the tracked-repositories table, not folded into either. No dialog: a
+ * single field doesn't need a modal in the way, and there's room for it
+ * directly on the page now that the trend chart (see git history) no
+ * longer sits above the table. Its data starts syncing as soon as the
+ * backend confirms the repo actually exists.
  */
 function AddRepositoryInline() {
   const { refresh } = useTrackedRepos();
@@ -242,8 +243,16 @@ function AddRepositoryInline() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col items-end gap-1.5">
-      <div className="flex items-center gap-2">
+    <Card className="flex flex-wrap items-center justify-between gap-4 p-6">
+      <div className="flex flex-col gap-1.5">
+        <h2 className="m-0 text-sm font-semibold text-slate-950 dark:text-white">
+          Track a repository
+        </h2>
+        <p className="m-0 text-xs text-slate-500 dark:text-slate-400">
+          Any public GitHub repository — starts syncing as soon as it's added.
+        </p>
+      </div>
+      <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-2">
         <Input
           aria-label="Repository to track (owner/repo)"
           placeholder="owner/repo"
@@ -257,9 +266,9 @@ function AddRepositoryInline() {
         <Button type="submit" size="sm" icon={<Plus size={14} />} loading={isSubmitting} disabled={!fullName.trim()}>
           Add
         </Button>
-      </div>
-      {error ? <p className="text-xs text-red-600 dark:text-red-400">{error}</p> : null}
-    </form>
+        {error ? <p className="w-full text-xs text-red-600 dark:text-red-400">{error}</p> : null}
+      </form>
+    </Card>
   );
 }
 
