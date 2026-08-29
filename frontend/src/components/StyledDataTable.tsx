@@ -1,4 +1,18 @@
-import { Card, DataTable, type DataTableProps } from "@neelamkhan21/ui";
+import { useState } from "react";
+import {
+  Card,
+  DataTable,
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  getPaginationRange,
+  type DataTablePaginationState,
+  type DataTableProps,
+} from "@neelamkhan21/ui";
 
 export interface StyledDataTableProps<T> extends DataTableProps<T> {
   /** Extra classes for the wrapping Card, e.g. to add margin. */
@@ -8,8 +22,10 @@ export interface StyledDataTableProps<T> extends DataTableProps<T> {
 /**
  * The house style for every data table in this app: light gray header
  * background, a bit more header row padding, a hairline under the header,
- * and the whole thing edge-to-edge in its own card rather than inset
- * inside one with padding.
+ * the whole thing edge-to-edge in its own card rather than inset inside
+ * one with padding, and its pagination footer (once there's more than one
+ * page) as a separate, centered element below the card rather than
+ * bundled inside it.
  *
  * `DataTable` itself exposes no header-styling prop, and `DataTableColumn`'s
  * own `className` reaches the body cells too (same field, both call
@@ -33,25 +49,73 @@ export interface StyledDataTableProps<T> extends DataTableProps<T> {
  * Defaults `pageSize` to 10 rather than leaving `DataTable`'s own
  * unpaginated default in place: every table in this app renders real,
  * unbounded server data (a busy repo's contributor list runs well past a
- * hundred rows), and `DataTable` only renders its pagination footer at all
- * once there's more than one page — so a table with 10 rows or fewer looks
- * identical to today, and one with 90 doesn't dump every row on screen at
- * once. Still overridable per call site, same as any other prop here.
+ * hundred rows), and pagination only renders at all once there's more
+ * than one page — so a table with 10 rows or fewer looks identical to
+ * today, and one with 90 doesn't dump every row on screen at once. Still
+ * overridable per call site, same as any other prop here.
+ *
+ * The footer itself is built from the same `Pagination`/`getPaginationRange`
+ * pieces `DataTable`'s own built-in one uses (see its `hidePagination`/
+ * `onPaginationChange` docs) — this isn't a second implementation, just
+ * the identical markup rendered as a sibling of the Card instead of a
+ * descendant, which is the only way to get it visually outside the
+ * card's border/background at all: a card's own bordered, rounded,
+ * `overflow-hidden` box can't be escaped by a CSS override on a child
+ * still living inside it, however that child is styled.
  */
 export function StyledDataTable<T>({ className, pageSize = 10, ...tableProps }: StyledDataTableProps<T>) {
+  const [pagination, setPagination] = useState<DataTablePaginationState | null>(null);
+
   return (
-    <Card
-      className={[
-        "overflow-hidden",
-        "[&_thead_th]:whitespace-nowrap [&_thead_th]:bg-slate-50 [&_thead_th]:py-3",
-        "[&_thead_th]:border-b [&_thead_th]:border-slate-200",
-        "dark:[&_thead_th]:bg-slate-900 dark:[&_thead_th]:border-slate-800",
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      <DataTable pageSize={pageSize} {...tableProps} />
-    </Card>
+    <div className="flex flex-col gap-4">
+      <Card
+        className={[
+          "overflow-hidden",
+          "[&_thead_th]:whitespace-nowrap [&_thead_th]:bg-slate-50 [&_thead_th]:py-3",
+          "[&_thead_th]:border-b [&_thead_th]:border-slate-200",
+          "dark:[&_thead_th]:bg-slate-900 dark:[&_thead_th]:border-slate-800",
+          className,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <DataTable pageSize={pageSize} hidePagination onPaginationChange={setPagination} {...tableProps} />
+      </Card>
+
+      {pagination && pagination.totalPages > 1 ? (
+        <Pagination>
+          <PaginationContent className="justify-center">
+            <PaginationItem>
+              <PaginationPrevious
+                disabled={pagination.page === 1}
+                onClick={() => pagination.setPage(Math.max(1, pagination.page - 1))}
+              />
+            </PaginationItem>
+            {getPaginationRange({ currentPage: pagination.page, totalPages: pagination.totalPages }).map((item, index) =>
+              item === "ellipsis" ? (
+                <PaginationItem key={`ellipsis-${index}`}>
+                  <PaginationEllipsis />
+                </PaginationItem>
+              ) : (
+                <PaginationItem key={item}>
+                  <PaginationLink
+                    isActive={item === pagination.page}
+                    onClick={() => pagination.setPage(item)}
+                  >
+                    {item}
+                  </PaginationLink>
+                </PaginationItem>
+              ),
+            )}
+            <PaginationItem>
+              <PaginationNext
+                disabled={pagination.page === pagination.totalPages}
+                onClick={() => pagination.setPage(Math.min(pagination.totalPages, pagination.page + 1))}
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+      ) : null}
+    </div>
   );
 }
