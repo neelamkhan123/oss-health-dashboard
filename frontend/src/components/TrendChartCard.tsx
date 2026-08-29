@@ -42,6 +42,16 @@ type TrendRow = Record<string, string | number>;
  * The metric lives in the *caller's* state rather than here so the title,
  * the description and the plotted series can't disagree with each other,
  * and so a page showing this chart twice would keep both in step.
+ *
+ * Title and switch sit in their own row above the card, the same layout as
+ * every other section on these pages (Core metrics, Contributor
+ * leaderboard) — a lone chart is the only thing inside the card itself.
+ * `Chart` still receives `title`/`description`: it's what supplies the
+ * `<figure>`'s `aria-labelledby`/`aria-describedby`, so rather than drop
+ * them (and the accessible name that comes with them) or show the same
+ * heading twice, its own figcaption is hidden with a scoped `sr-only`
+ * override — the assistive-tech wiring stays intact, pointing at text
+ * that's identical to the one now visible above.
  */
 export function TrendChartCard({
   repos,
@@ -74,88 +84,94 @@ export function TrendChartCard({
   });
 
   return (
-    <Card className="relative p-6">
-      {/* Absolutely positioned so the switch sits on the chart's own caption
-       * line, as the design has it. Chart renders caption-first inside a
-       * <figure>, and it owns the accessible plumbing (the reserved plot
-       * box, the aria-hidden plot, the data-table equivalent), so it's
-       * worth keeping intact rather than hand-rolling a card header that
-       * would have to reproduce all of that. */}
-      <div className="absolute right-6 top-6 z-10 flex items-center gap-1.5">
-        <Toggle
-          variant="outline"
-          size="sm"
-          pressed={metric === "merge"}
-          onPressedChange={() => onMetricChange("merge")}
-        >
-          Merge time
-        </Toggle>
-        <Toggle
-          variant="outline"
-          size="sm"
-          pressed={metric === "issue"}
-          onPressedChange={() => onMetricChange("issue")}
-        >
-          Issue response
-        </Toggle>
+    <div className="flex flex-col gap-3.5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-1.5">
+          <h2 className="m-0 text-sm font-semibold text-slate-950 dark:text-white">
+            {copy.title}
+          </h2>
+          <p className="m-0 text-xs text-slate-500 dark:text-slate-400">
+            {copy.description}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Toggle
+            variant="outline"
+            size="sm"
+            pressed={metric === "merge"}
+            onPressedChange={() => onMetricChange("merge")}
+          >
+            Merge time
+          </Toggle>
+          <Toggle
+            variant="outline"
+            size="sm"
+            pressed={metric === "issue"}
+            onPressedChange={() => onMetricChange("issue")}
+          >
+            Issue response
+          </Toggle>
+        </div>
       </div>
 
-      <Chart
-        title={copy.title}
-        description={copy.description}
-        height={height}
-        legend={
-          <ChartLegend>
-            {repos.map((repo) => (
-              <ChartLegendItem key={repo.id} color={repoColor(repo.id, trackedRepoNames)}>
-                {repo.id}
-              </ChartLegendItem>
-            ))}
-          </ChartLegend>
-        }
-        dataTable={
-          <ChartDataTable
-            caption={`${copy.title}, in hours, by month`}
-            columns={[
-              { header: "Month", cell: (row: TrendRow) => row.month },
-              ...repos.map((repo) => ({
-                header: repo.id,
-                cell: (row: TrendRow) => row[repo.id],
-              })),
-            ]}
-            data={data}
-          />
-        }
-      >
-        <ResponsiveContainer width="100%" height="100%">
-          {/* No negative left margin, and no fixed YAxis width: merge/response
-           * time is medians in hours, and an unhealthy repo's monthly median
-           * can run into four digits (a real synced repo has hit 2400+).
-           * A negative margin plus a width picked for 3-digit values pushed
-           * any 4-digit tick's leading character(s) past the SVG's own
-           * x=0 edge, which clips there (SVGs clip like `overflow: hidden`
-           * by default) — "2400" silently rendered as "400". Omitting
-           * `width` lets Recharts measure each tick label and reserve
-           * exactly the space the widest one actually needs, so this
-           * can't reoccur at some larger number either. */}
-          <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} />
-            <YAxis tickLine={false} axisLine={false} fontSize={12} />
-            <RechartsTooltip />
-            {repos.map((repo) => (
-              <Line
-                key={repo.id}
-                type="monotone"
-                dataKey={repo.id}
-                stroke={repoColor(repo.id, trackedRepoNames)}
-                strokeWidth={2}
-                dot={false}
-              />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
-      </Chart>
-    </Card>
+      <Card className="p-6 [&_figcaption]:sr-only">
+        <Chart
+          title={copy.title}
+          description={copy.description}
+          height={height}
+          legend={
+            <ChartLegend>
+              {repos.map((repo) => (
+                <ChartLegendItem key={repo.id} color={repoColor(repo.id, trackedRepoNames)}>
+                  {repo.id}
+                </ChartLegendItem>
+              ))}
+            </ChartLegend>
+          }
+          dataTable={
+            <ChartDataTable
+              caption={`${copy.title}, in hours, by month`}
+              columns={[
+                { header: "Month", cell: (row: TrendRow) => row.month },
+                ...repos.map((repo) => ({
+                  header: repo.id,
+                  cell: (row: TrendRow) => row[repo.id],
+                })),
+              ]}
+              data={data}
+            />
+          }
+        >
+          <ResponsiveContainer width="100%" height="100%">
+            {/* No negative left margin, and no fixed YAxis width: merge/response
+             * time is medians in hours, and an unhealthy repo's monthly median
+             * can run into four digits (a real synced repo has hit 2400+).
+             * A negative margin plus a width picked for 3-digit values pushed
+             * any 4-digit tick's leading character(s) past the SVG's own
+             * x=0 edge, which clips there (SVGs clip like `overflow: hidden`
+             * by default) — "2400" silently rendered as "400". Omitting
+             * `width` lets Recharts measure each tick label and reserve
+             * exactly the space the widest one actually needs, so this
+             * can't reoccur at some larger number either. */}
+            <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} />
+              <YAxis tickLine={false} axisLine={false} fontSize={12} />
+              <RechartsTooltip />
+              {repos.map((repo) => (
+                <Line
+                  key={repo.id}
+                  type="monotone"
+                  dataKey={repo.id}
+                  stroke={repoColor(repo.id, trackedRepoNames)}
+                  strokeWidth={2}
+                  dot={false}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </Chart>
+      </Card>
+    </div>
   );
 }
