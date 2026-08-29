@@ -18,12 +18,17 @@ import { CommitHeatmap } from "../components/CommitHeatmap";
 import { MergeTimeDistribution } from "../components/MergeTimeDistribution";
 import { fetchRepoFull, fetchContributors } from "../lib/api";
 import { useFetch } from "../lib/useFetch";
+import { useDateRange } from "../lib/dateRangeContext";
+import { useSyncStatus } from "../lib/syncContext";
 import type { ContributorRow, RepoStats } from "../lib/types";
 
 export function RepoDetail() {
   const { repoId } = useParams();
-  const { isLoading, isError, data: repo, retry } = useFetch(repoId ?? "", () =>
-    fetchRepoFull(repoId!),
+  const { days } = useDateRange();
+  const { version } = useSyncStatus();
+  const { isLoading, isError, data: repo, retry } = useFetch(
+    `${repoId ?? ""}:${days}:${version}`,
+    () => fetchRepoFull(repoId!, days),
   );
 
   if (isLoading) {

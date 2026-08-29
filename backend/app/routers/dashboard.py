@@ -1,13 +1,21 @@
 # backend/app/routers/dashboard.py
 import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, case, and_, within_group
 from sqlalchemy.orm import Session
 from app.services.db import get_db
 from app.services.cache import cache_get, cache_set
+from app.services.sync import sync_all_repos, get_sync_status, cancel_sync
 from app.models.models import Contributor, Repo, PullRequest, Issue, Commit
 
 router = APIRouter()
+
+# Bounds on the `days` query param the Topbar's date-range picker feeds into
+# /overview and /full — 1 day minimum (a same-day window is still a valid,
+# if noisy, selection), a year ceiling since nothing here is designed to
+# aggregate further back than that (the 12-month trend charts already cap
+# there independently of this parameter).
+DaysParam = Query(90, ge=1, le=365)
 
 def _median_hours(start_col, end_col):
     """A SQL expression for the median (not mean) of end_col - start_col, in
@@ -116,15 +124,41 @@ def get_repo_or_404(db: Session, repo_full_name: str) -> Repo:
 #    Overview's table, and one card in Compare) needs, in one place so
 #    those three surfaces can't drift from each other ──────────────────
 
-def compute_repo_full(db: Session, repo: Repo) -> dict:
+def compute_repo_full(db: Session, repo: Repo, days: int = 90) -> dict:
+    # The Topbar's date-range picker's window — everything below that
+    # measures an *event* (a PR merging, an issue getting its first reply, a
+    # commit landing) is scoped to it. Everything that measures *current
+    # state* instead (open PRs, open issues, stars/forks/lang/license, the
+    # 12-month trend charts and heatmap) stays unwindowed: an open PR from
+    # eight months ago is still open today regardless of which trailing
+    # window is selected, and a 12-month trend chart re-windowed to the
+    # picker would mostly just go empty.
+    window_start = datetime.datetime.utcnow() - datetime.timedelta(days=days)
+
     # PR totals: merged implies closed (GitHub sets both together), so
-    # "open" is closed_at IS NULL and "closed, unmerged" is the rest.
+    # "open" is closed_at IS NULL and "closed, unmerged" is the rest. "open"
+    # is a live count (unwindowed); merged/closed-unmerged are scoped to the
+    # window so merge rate reflects PRs resolved in the selected period.
     pr_totals = (
         db.query(
-            func.count(PullRequest.id).label("total"),
-            func.sum(case((PullRequest.merged_at.isnot(None), 1), else_=0)).label("merged"),
             func.sum(
-                case((and_(PullRequest.closed_at.isnot(None), PullRequest.merged_at.is_(None)), 1), else_=0)
+                case(
+                    (and_(PullRequest.merged_at.isnot(None), PullRequest.merged_at >= window_start), 1),
+                    else_=0,
+                )
+            ).label("merged"),
+            func.sum(
+                case(
+                    (
+                        and_(
+                            PullRequest.closed_at.isnot(None),
+                            PullRequest.merged_at.is_(None),
+                            PullRequest.closed_at >= window_start,
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
             ).label("closed_unmerged"),
             func.sum(case((PullRequest.closed_at.is_(None), 1), else_=0)).label("open"),
         )
@@ -136,10 +170,15 @@ def compute_repo_full(db: Session, repo: Repo) -> dict:
 
     # Merge-time durations, in hours — pulled once and reused for the
     # average, the histogram, and the percentiles rather than three
-    # separate queries computing overlapping things.
+    # separate queries computing overlapping things. Scoped to PRs merged
+    # within the window, same as merge_rate_pct above.
     duration_rows = (
         db.query(func.extract("epoch", PullRequest.merged_at - PullRequest.created_at))
-        .filter(PullRequest.repo_id == repo.id, PullRequest.merged_at.isnot(None))
+        .filter(
+            PullRequest.repo_id == repo.id,
+            PullRequest.merged_at.isnot(None),
+            PullRequest.merged_at >= window_start,
+        )
         .all()
     )
     durations_hours = sorted(float(row[0]) / 3600 for row in duration_rows)
@@ -154,26 +193,60 @@ def compute_repo_full(db: Session, repo: Repo) -> dict:
         if durations_hours
     ] or [(label, "—") for label in ("p50", "p75", "p90", "p95")]
 
+    # Live counts, unwindowed — see the docstring above.
     open_issues = db.query(func.count(Issue.id)).filter(Issue.repo_id == repo.id, Issue.is_open.is_(True)).scalar()
-    contributors_count = db.query(func.count(Contributor.id)).filter(Contributor.repo_id == repo.id).scalar()
+
+    # "Contributors, {days} days" (the label both Overview and Compare give
+    # this field) means contributors *active* in the window, not the size of
+    # the all-time roster — same definition the overview KPI's
+    # _active_contributors_between already uses, just for one repo. Reviews
+    # aren't included: they're stored as a running total on Contributor, not
+    # as dated events, so there's no timestamp here to window against.
+    pr_authors_in_window = (
+        db.query(PullRequest.author)
+        .filter(PullRequest.repo_id == repo.id, PullRequest.created_at >= window_start)
+        .distinct()
+    )
+    commit_authors_in_window = (
+        db.query(Commit.author)
+        .filter(Commit.repo_id == repo.id, Commit.authored_at >= window_start, Commit.author.isnot(None))
+        .distinct()
+    )
+    contributors_count = len(
+        {row[0] for row in pr_authors_in_window} | {row[0] for row in commit_authors_in_window}
+    )
 
     # Issue first-response duration, in hours — same shape of query as
     # merge time, over whatever slice of issues _sync_issue_first_response
-    # has backfilled so far (see sync.py; this fills in gradually).
+    # has backfilled so far (see sync.py; this fills in gradually), scoped
+    # to responses that landed within the window.
     response_rows = (
         db.query(func.extract("epoch", Issue.first_response_at - Issue.created_at))
-        .filter(Issue.repo_id == repo.id, Issue.first_response_at.isnot(None))
+        .filter(
+            Issue.repo_id == repo.id,
+            Issue.first_response_at.isnot(None),
+            Issue.first_response_at >= window_start,
+        )
         .all()
     )
     response_hours_list = sorted(float(row[0]) / 3600 for row in response_rows)
     avg_response_hours = _percentile(response_hours_list, 0.5) if response_hours_list else None
 
+    # commitsTotal ("commits in the last 12 months") is its own fixed
+    # window, independent of the picker — see the docstring above.
     commits_last_year = (
         db.query(func.count(Commit.id))
         .filter(Commit.repo_id == repo.id, Commit.authored_at >= datetime.datetime.utcnow() - datetime.timedelta(days=365))
         .scalar()
     )
-    commits_per_week = round(commits_last_year / 52, 1) if commits_last_year else 0.0
+    # commits/week *does* follow the picker: commits in the window, spread
+    # over however many weeks the window spans.
+    commits_in_window = (
+        db.query(func.count(Commit.id))
+        .filter(Commit.repo_id == repo.id, Commit.authored_at >= window_start)
+        .scalar()
+    )
+    commits_per_week = round(commits_in_window / (days / 7), 1) if commits_in_window else 0.0
 
     months = _month_boundaries(12)
     trend_merge = []
@@ -337,13 +410,13 @@ def repo_stats_optimized(repo_full_name: str, db: Session = Depends(get_db)):
     return response
 
 @router.get("/repos/{repo_full_name:path}/full")
-def repo_full(repo_full_name: str, db: Session = Depends(get_db)):
+def repo_full(repo_full_name: str, days: int = DaysParam, db: Session = Depends(get_db)):
     repo = get_repo_or_404(db, repo_full_name)
-    cache_key = f"repo_full:{repo.id}"
+    cache_key = f"repo_full:{repo.id}:{days}"
     cached = cache_get(cache_key)
     if cached:
         return cached
-    data = compute_repo_full(db, repo)
+    data = compute_repo_full(db, repo, days=days)
     cache_set(cache_key, data, ttl_seconds=900)
     return data
 
@@ -366,8 +439,8 @@ def repo_contributors(repo_full_name: str, db: Session = Depends(get_db)):
     ]
 
 @router.get("/overview")
-def overview(db: Session = Depends(get_db)):
-    cache_key = "overview"
+def overview(days: int = DaysParam, db: Session = Depends(get_db)):
+    cache_key = f"overview:{days}"
     cached = cache_get(cache_key)
     if cached:
         return cached
@@ -376,10 +449,10 @@ def overview(db: Session = Depends(get_db)):
     if not repos:
         return {"repos": [], "kpis": None}
 
-    repo_stats = [compute_repo_full(db, r) for r in repos]
+    repo_stats = [compute_repo_full(db, r, days=days) for r in repos]
 
     now = datetime.datetime.utcnow()
-    period = datetime.timedelta(days=90)
+    period = datetime.timedelta(days=days)
     week = datetime.timedelta(days=7)
     repo_ids = [r.id for r in repos]
 
@@ -457,25 +530,26 @@ def overview(db: Session = Depends(get_db)):
     weeks12 = _week_boundaries(12)
     prs_sparkline = [_prs_merged_between(start, end) for start, end in weeks12]
 
+    period_label = f"vs. previous {days} days"
     result = {
         "repos": repo_stats,
         "kpis": {
             "avgMergeTime": {
                 "value": _format_duration(avg_merge_now),
                 "delta": _delta(avg_merge_now, avg_merge_prev),
-                "deltaLabel": "vs. previous 90 days",
+                "deltaLabel": period_label,
                 "sparkline": merge_sparkline,
             },
             "openIssues": {
                 "value": _format_count(open_issues_now),
                 "delta": _delta(open_issues_now, open_issues_prev),
-                "deltaLabel": "vs. previous 90 days",
+                "deltaLabel": period_label,
                 "sparkline": open_issues_sparkline,
             },
             "contributors": {
                 "value": _format_count(contrib_now),
                 "delta": _delta(contrib_now, contrib_prev),
-                "deltaLabel": "vs. previous 90 days",
+                "deltaLabel": period_label,
                 "sparkline": contrib_sparkline,
             },
             "prsThisWeek": {
@@ -488,3 +562,35 @@ def overview(db: Session = Depends(get_db)):
     }
     cache_set(cache_key, result, ttl_seconds=900)
     return result
+
+@router.post("/sync")
+def trigger_sync():
+    """Kicks off the same Celery job the 15-minute beat schedule runs
+    (see celery_app.py) — one task per tracked repo, queued immediately
+    rather than waiting for the next scheduled tick. Fire-and-forget: this
+    returns as soon as the tasks are queued, not once they've finished
+    (a full sync can take a few minutes per repo), so the response carries
+    no new data for the UI to show — it's a trigger, not a fetch."""
+    result = sync_all_repos.delay()
+    return {"status": "queued", "taskId": result.id}
+
+@router.get("/sync/status")
+def sync_status():
+    """Polled by the Topbar's "Sync now" button while a sync is in flight —
+    see sync.py's get_sync_status for how this is tracked. `state` is
+    "idle" (nothing running, or the last run's status has expired),
+    "running" (at least one tracked repo still pending), or "complete"
+    (every tracked repo landed on "done" or "failed"). `repos` maps each
+    tracked repo's full name to its own outcome so the UI can show
+    per-repo failures rather than just a pass/fail for the whole batch."""
+    return get_sync_status()
+
+@router.post("/sync/stop")
+def stop_sync():
+    """The progress toast's Stop button — see sync.py's cancel_sync for
+    what "stopping" actually means (best-effort: a task already
+    mid-write can leave a repo partially synced, cleaned up by the next
+    run). Returns the repos that were actually still pending and so
+    actually got cancelled — clicking Stop after everything already
+    finished is a harmless no-op, reported as an empty list."""
+    return cancel_sync()

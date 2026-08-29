@@ -24,6 +24,8 @@ import {
 import { LayoutDashboard, Activity, Folder, Zap } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
 import { TRACKED_REPOS } from "../lib/constants";
+import { useDateRange } from "../lib/dateRangeContext";
+import { useSyncStatus } from "../lib/syncContext";
 
 /** The trailing breadcrumb crumb for the current route. */
 function currentCrumb(pathname: string): string {
@@ -122,10 +124,6 @@ function GroupLabel({
   );
 }
 
-const LAST_90_DAYS = defaultDateRangePresets.find(
-  (preset) => preset.label === "Last 90 days",
-)!;
-
 /**
  * Writes the selected range the way the preset list does ("Last 90 days")
  * whenever it still matches one, falling back to the picker's own from–to
@@ -151,6 +149,8 @@ function formatRange(range: DateRange): string {
 
 function Topbar({ crumb }: { crumb: string }) {
   const navigate = useNavigate();
+  const { range, setRange } = useDateRange();
+  const { phase, runSync } = useSyncStatus();
 
   const handleHomeClick = (e: MouseEvent<HTMLAnchorElement>) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
@@ -159,6 +159,10 @@ function Topbar({ crumb }: { crumb: string }) {
     e.preventDefault();
     navigate("/");
   };
+
+  // Just a busy state here — the numbers (and the Stop button) live on the
+  // progress toast (see lib/syncContext.tsx), not duplicated on the button.
+  const isSyncing = phase !== "idle";
 
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-6 dark:border-slate-800 dark:bg-slate-950">
@@ -181,17 +185,19 @@ function Topbar({ crumb }: { crumb: string }) {
       {/* DateRangePicker renders its own outline trigger with a calendar
        * icon, so it *is* the date button rather than something a separate
        * button has to open — className only trims it to the `sm` height the
-       * "Sync now" button beside it uses. The selection isn't lifted into
-       * app state yet: no page reads a date range, because no endpoint
-       * accepts one. Wire it through once one does. */}
+       * "Sync now" button beside it uses. Controlled by DateRangeProvider
+       * (see lib/dateRangeContext.tsx) so Overview, RepoDetail, and Compare
+       * — which live in a separate tree from this Topbar, under <Outlet> —
+       * can all read the selection and refetch when it changes. */}
       <DateRangePicker
         className="h-8 gap-1.5 px-3 text-xs"
-        defaultValue={LAST_90_DAYS.getRange()}
+        value={range}
+        onValueChange={setRange}
         formatValue={formatRange}
         disabled={(date) => date > new Date()}
       />
-      <Button size="sm" icon={<Zap size={14} />}>
-        Sync now
+      <Button size="sm" icon={<Zap size={14} />} loading={isSyncing} onClick={runSync}>
+        {isSyncing ? "Syncing…" : "Sync now"}
       </Button>
     </header>
   );

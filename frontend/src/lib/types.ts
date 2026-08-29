@@ -74,6 +74,15 @@ export type OverviewResponse = {
   kpis: OverviewKpis | null;
 };
 
+/** As `GET /dashboard/sync/status` returns it — see the backend endpoint's
+ *  own docstring for what each `state` means. "cancelled" is what a repo's
+ *  entry reads after the Stop button revokes its still-pending task. */
+export type SyncStatus = {
+  state: "idle" | "running" | "complete";
+  startedAt: string | null;
+  repos: Record<string, "pending" | "done" | "failed" | "cancelled" | "unknown">;
+};
+
 export const MERGE_TIME_BUCKETS = ["<1h", "1–6h", "6–24h", "1–3d", "3–7d", ">7d"];
 
 /** The same trailing 12 calendar months `_month_boundaries` computes on the

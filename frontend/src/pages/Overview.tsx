@@ -18,10 +18,20 @@ import { fetchOverview } from "../lib/api";
 import { repoColor } from "../lib/types";
 import { TRACKED_REPOS } from "../lib/constants";
 import { useFetch } from "../lib/useFetch";
+import { useDateRange } from "../lib/dateRangeContext";
+import { useSyncStatus } from "../lib/syncContext";
 import type { RepoStats } from "../lib/types";
 
 export function Overview() {
-  const { isLoading, isError, data, retry } = useFetch("overview", fetchOverview);
+  const { days } = useDateRange();
+  const { version } = useSyncStatus();
+  // `days` and `version` in the key, not just the fetcher: useFetch
+  // refetches when its key changes, so the Topbar's date-range picker
+  // driving `days`, or a sync completing and bumping `version`, are both
+  // what actually reload this page's data.
+  const { isLoading, isError, data, retry } = useFetch(`overview:${days}:${version}`, () =>
+    fetchOverview(days),
+  );
   const [metric, setMetric] = useState<TrendMetric>("merge");
 
   if (isLoading) return <OverviewSkeleton />;
@@ -52,7 +62,7 @@ export function Overview() {
           icon={<CircleAlert size={16} />}
         />
         <StatCard
-          label="Contributors, 90 days"
+          label={`Contributors, ${days} days`}
           value={kpis.contributors.value}
           delta={kpis.contributors.delta}
           deltaLabel={kpis.contributors.deltaLabel}
@@ -73,12 +83,12 @@ export function Overview() {
         <LazyTrendChartCard repos={repos} metric={metric} onMetricChange={setMetric} />
       </Suspense>
 
-      <TrackedRepositories repos={repos} />
+      <TrackedRepositories repos={repos} days={days} />
     </div>
   );
 }
 
-function TrackedRepositories({ repos }: { repos: RepoStats[] }) {
+function TrackedRepositories({ repos, days }: { repos: RepoStats[]; days: number }) {
   const navigate = useNavigate();
 
   const columns: DataTableColumn<RepoStats>[] = [
@@ -182,7 +192,7 @@ function TrackedRepositories({ repos }: { repos: RepoStats[] }) {
             Tracked repositories
           </h2>
           <p className="m-0 text-xs text-slate-500 dark:text-slate-400">
-            Last 90 days. Click a repository for the full breakdown.
+            Last {days} days. Click a repository for the full breakdown.
           </p>
         </div>
         {/* Disabled rather than a no-op: there is no "add a repository"
