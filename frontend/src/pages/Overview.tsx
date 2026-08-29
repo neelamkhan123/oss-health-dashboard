@@ -9,21 +9,19 @@ import {
   Badge,
   Button,
   Sparkline,
-  Dialog,
-  DialogTrigger,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogClose,
   Input,
-  buttonVariants,
   toast,
-  useDialog,
   type DataTableColumn,
 } from "@neelamkhan21/ui";
-import { Clock, CircleAlert, Users, TrendingUp, Inbox, Folder, Plus, TriangleAlert } from "lucide-react";
+import {
+  Clock,
+  CircleAlert,
+  Users,
+  TrendingUp,
+  Inbox,
+  Folder,
+  TriangleAlert,
+} from "lucide-react";
 import { fetchOverview, addTrackedRepo } from "../lib/api";
 import { repoColor } from "../lib/types";
 import { useFetch } from "../lib/useFetch";
@@ -53,6 +51,15 @@ export function Overview() {
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex flex-col px-2">
+        {/* TODO: Replace hardcoded name with dynamic user name */}
+        <h1 className="text-2xl font-bold">Welcome back, Neelam</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Here's an overview of your repositories and key metrics for the past{" "}
+          {days} days.
+        </p>
+      </div>
+
       <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
         <StatCard
           label="Avg. time to merge"
@@ -90,18 +97,18 @@ export function Overview() {
         />
       </div>
 
-      <TrackedRepositories repos={repos} days={days} trackedRepoNames={repoNames} />
+      <AddRepositoryInline />
+
+      <TrackedRepositories repos={repos} trackedRepoNames={repoNames} />
     </div>
   );
 }
 
 function TrackedRepositories({
   repos,
-  days,
   trackedRepoNames,
 }: {
   repos: RepoStats[];
-  days: number;
   trackedRepoNames: string[];
 }) {
   const navigate = useNavigate();
@@ -114,13 +121,24 @@ function TrackedRepositories({
         <a
           href={`/repos/${encodeURIComponent(repo.id)}`}
           onClick={(e) => {
-            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            if (
+              e.metaKey ||
+              e.ctrlKey ||
+              e.shiftKey ||
+              e.altKey ||
+              e.button !== 0
+            )
+              return;
             e.preventDefault();
             navigate(`/repos/${encodeURIComponent(repo.id)}`);
           }}
           className="flex items-center gap-2 font-medium text-slate-950 hover:underline dark:text-white"
         >
-          <Folder size={14} aria-hidden="true" />
+          <Folder
+            size={14}
+            aria-hidden="true"
+            className="text-blue-300 fill-blue-300"
+          />
           {repo.id}
         </a>
       ),
@@ -131,8 +149,6 @@ function TrackedRepositories({
       header: "Avg. merge time",
       align: "right",
       sortable: true,
-      // Every metric column displays a formatted string but sorts on the raw
-      // number behind it — otherwise "1,043" would sort before "612".
       sortValue: (repo) => repo.merge.v ?? 0,
       cell: (repo) => repo.merge.d,
       filterValue: (repo) => repo.merge.d,
@@ -200,58 +216,39 @@ function TrackedRepositories({
   const rows = [...repos].sort((a, b) => (a.merge.v ?? 0) - (b.merge.v ?? 0));
 
   return (
-    <Card className="p-6">
-      <div className="mb-3 flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-1.5">
-          <h2 className="m-0 text-sm font-semibold text-slate-950 dark:text-white">
-            Tracked repositories
-          </h2>
-          <p className="m-0 text-xs text-slate-500 dark:text-slate-400">
-            Last {days} days. Click a repository for the full breakdown.
-          </p>
-        </div>
-        <AddRepositoryButton />
-      </div>
+    // DataTable exposes no header-styling prop, and DataTableColumn's own
+    // `className` reaches the body cells too (same field, both call
+    // sites) — an arbitrary-variant descendant selector scoped to this
+    // card is what actually hits only the header, without a
+    // component-library change. It also naturally out-specifies
+    // TableHead's own hardcoded `h-10 px-3` (a two-element compound
+    // selector beats a single utility class on specificity), so this
+    // wins regardless of which order Tailwind happens to emit either
+    // rule in — no `!important` needed.
+    //
+    // `overflow-hidden`, not rounding the row/cells themselves: a <tr>'s
+    // background doesn't reliably clip to a border-radius the way a
+    // normal box does (that's why the header's square corners were
+    // poking past the card's rounded edge), and rounding only the outer
+    // header cells' corners individually is exactly the kind of
+    // per-cell-fragile fix that breaks the next time a column is added
+    // or reordered. Clipping the whole card to its own already-rounded
+    // shape is the one fix that doesn't care what's inside it.
+    <Card className="overflow-hidden [&_thead_th]:bg-slate-50 [&_thead_th]:py-3 dark:[&_thead_th]:bg-slate-900">
       <DataTable columns={columns} data={rows} getRowId={(repo) => repo.id} />
     </Card>
   );
 }
 
 /**
- * Opens a dialog for tracking a new public GitHub repo — its data starts
- * syncing as soon as the backend confirms the repo actually exists.
- * `Dialog` itself is left uncontrolled; only `openCount` is tracked here,
- * purely to key `AddRepositoryForm` so each open mounts a fresh instance.
- * That's what resets the form between attempts — the dialog's own
- * `<dialog>` element persists across opens (shown/hidden, not unmounted),
- * so without a fresh instance a second open would still be showing the
- * previous attempt's error or a stale name. A key-driven remount avoids
- * needing an effect to reset that state by hand.
+ * Tracks a new public GitHub repo — its own row between the KPI cards and
+ * the tracked-repositories table, not folded into either. No dialog: a
+ * single field doesn't need a modal in the way, and there's room for it
+ * directly on the page now that the trend chart (see git history) no
+ * longer sits above the table. Its data starts syncing as soon as the
+ * backend confirms the repo actually exists.
  */
-function AddRepositoryButton() {
-  const [openCount, setOpenCount] = useState(0);
-  return (
-    <Dialog onOpenChange={(open) => open && setOpenCount((c) => c + 1)}>
-      <DialogTrigger className={`${buttonVariants({ variant: "ghost", size: "sm" })} gap-1.5`}>
-        <Plus size={14} aria-hidden="true" />
-        Add repository
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Track a new repository</DialogTitle>
-          <DialogDescription>
-            Any public GitHub repository. Its data starts syncing in the background as soon as
-            it's added.
-          </DialogDescription>
-        </DialogHeader>
-        <AddRepositoryForm key={openCount} />
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AddRepositoryForm() {
-  const { onOpenChange } = useDialog();
+function AddRepositoryInline() {
   const { refresh } = useTrackedRepos();
   const [fullName, setFullName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -260,6 +257,7 @@ function AddRepositoryForm() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const trimmed = fullName.trim();
+    if (!trimmed) return;
     setIsSubmitting(true);
     setError(null);
     try {
@@ -270,40 +268,52 @@ function AddRepositoryForm() {
         variant: "success",
       });
       refresh();
-      onOpenChange(false);
+      setFullName("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't add this repository.");
+      setError(
+        err instanceof Error ? err.message : "Couldn't add this repository.",
+      );
+    } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <label
-          htmlFor="repo-full-name"
-          className="text-xs font-medium text-slate-700 dark:text-slate-300"
-        >
-          Repository
-        </label>
+    <div className="flex flex-col flex-wrap gap-2">
+      <div className="flex flex-col px-2">
+        <h2 className="m-0 font-semibold text-slate-950 dark:text-white">
+          Add a repository
+        </h2>
+        <p className="m-0 text-xs text-slate-500 dark:text-slate-400">
+          Any public GitHub repository — starts syncing as soon as it's added.
+        </p>
+      </div>
+      <form onSubmit={handleSubmit} className="flex items-center gap-2 w-1/2">
         <Input
-          id="repo-full-name"
+          aria-label="Repository to track (owner/repo)"
           placeholder="owner/repo"
           value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          autoFocus
+          onChange={(e) => {
+            setFullName(e.target.value);
+            if (error) setError(null);
+          }}
+          className="h-8 text-xs"
         />
-        {error ? <p className="text-xs text-red-600 dark:text-red-400">{error}</p> : null}
-      </div>
-      <DialogFooter>
-        <DialogClose className={buttonVariants({ variant: "outline", size: "sm" })}>
-          Cancel
-        </DialogClose>
-        <Button type="submit" size="sm" loading={isSubmitting} disabled={!fullName.trim()}>
+        <Button
+          type="submit"
+          size="md"
+          loading={isSubmitting}
+          disabled={!fullName.trim()}
+        >
           Add
         </Button>
-      </DialogFooter>
-    </form>
+        {error ? (
+          <p className="w-full text-xs text-red-600 dark:text-red-400">
+            {error}
+          </p>
+        ) : null}
+      </form>
+    </div>
   );
 }
 
@@ -337,8 +347,14 @@ function OverviewSkeleton() {
 
 function OverviewEmpty() {
   const steps = [
-    ["1. Add a real GITHUB_TOKEN", "The sync job needs a Personal Access Token with public_repo scope in the backend's .env."],
-    ["2. Trigger a sync", "docker compose exec api python -c \"from app.services.sync import sync_all_repos; sync_all_repos.delay()\""],
+    [
+      "1. Add a real GITHUB_TOKEN",
+      "The sync job needs a Personal Access Token with public_repo scope in the backend's .env.",
+    ],
+    [
+      "2. Trigger a sync",
+      'docker compose exec api python -c "from app.services.sync import sync_all_repos; sync_all_repos.delay()"',
+    ],
     [
       "3. Wait for it to finish",
       "A few minutes for a repo the size of react — check docker compose logs worker.",
