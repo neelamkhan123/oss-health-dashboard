@@ -1,14 +1,5 @@
-import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
-  Sidebar,
-  SidebarProvider,
-  SidebarHeader,
-  SidebarContent,
-  SidebarGroup,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
-  SidebarTrigger,
   Breadcrumb,
   BreadcrumbList,
   BreadcrumbItem,
@@ -18,126 +9,14 @@ import {
   Button,
   DateRangePicker,
   defaultDateRangePresets,
+  SidebarTrigger,
   type DateRange,
 } from "@neelamkhan21/ui";
-import { LayoutDashboard, Activity, Folder, Zap } from "lucide-react";
-import { Fragment, useEffect, type MouseEvent, type ReactNode } from "react";
-import { useDateRange } from "../lib/dateRangeContext";
-import { useSyncStatus } from "../lib/syncContext";
-import { useTrackedRepos } from "../lib/trackedReposContext";
-
-/** One segment of the breadcrumb trail. `href` is omitted for the current
- *  page — the trailing crumb, or a middle one that isn't actually a
- *  distinct navigable page (there is no standalone "Repositories" view). */
-type Crumb = { label: string; href?: string };
-
-/**
- * The breadcrumb trail for the current route.
- *
- * Overview and Compare are top-level, sibling views (see the Sidebar's own
- * "Views" group) — neither is nested under the other, or under some
- * "Repositories" hub that doesn't exist as an actual page, so each gets a
- * single, unlinked crumb naming itself. A repo's detail page *is* reached
- * by drilling into one specific repo from Overview's own table (or the
- * Sidebar's mirror of it) — so that's the one route that gets a real
- * two-level trail, branching off Overview specifically.
- */
-function crumbsFor(pathname: string): Crumb[] {
-  if (pathname === "/compare") return [{ label: "Compare" }];
-  if (pathname.startsWith("/repos/")) {
-    // The full owner/repo, not just the name — the crumb should read the
-    // same as the page's own <h1> and the sidebar entry that led here.
-    const repo = decodeURIComponent(pathname.slice("/repos/".length));
-    return [{ label: "Overview", href: "/" }, { label: repo }];
-  }
-  return [{ label: "Overview" }];
-}
-
-export function AppShell() {
-  const location = useLocation();
-  const { repoNames } = useTrackedRepos();
-
-  return (
-    <SidebarProvider>
-      <Sidebar>
-        <SidebarHeader>
-          <span className="flex items-center gap-2.5 px-2 text-sm font-semibold tracking-tight text-slate-950 dark:text-white">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-[13px] text-white dark:bg-white dark:text-slate-950">
-              N
-            </span>
-            OSS Health
-          </span>
-        </SidebarHeader>
-
-        <SidebarContent>
-          <SidebarGroup>
-            <GroupLabel>Views</GroupLabel>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarNavButton to="/" icon={<LayoutDashboard size={16} />}>
-                  Overview
-                </SidebarNavButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarNavButton to="/compare" icon={<Activity size={16} />}>
-                  Compare
-                </SidebarNavButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroup>
-
-          <SidebarGroup>
-            <GroupLabel count={repoNames.length}>Tracked repos</GroupLabel>
-            <SidebarMenu>
-              {repoNames.map((repo) => (
-                <SidebarMenuItem key={repo}>
-                  <SidebarNavButton
-                    to={`/repos/${encodeURIComponent(repo)}`}
-                    icon={<Folder size={16} />}
-                  >
-                    {repo}
-                  </SidebarNavButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroup>
-        </SidebarContent>
-      </Sidebar>
-
-      <div className="flex min-w-0 flex-1 flex-col bg-slate-50 dark:bg-slate-900">
-        <Topbar crumbs={crumbsFor(location.pathname)} />
-        <main className="flex-1 overflow-y-auto p-6">
-          <Outlet />
-        </main>
-      </div>
-    </SidebarProvider>
-  );
-}
-
-/**
- * A sidebar group heading, with an optional count on the right. Not
- * `SidebarGroupLabel` when a count is present: that component renders a
- * plain label and has no slot for trailing content, and wrapping a flex row
- * inside it would fight its own text styling.
- */
-function GroupLabel({
-  children,
-  count,
-}: {
-  children: ReactNode;
-  count?: number;
-}) {
-  return (
-    <div className="flex items-center justify-between px-2 py-1 text-xs font-medium text-slate-500 dark:text-slate-400">
-      <span>{children}</span>
-      {count !== undefined ? (
-        <span className="tabular-nums text-slate-400 dark:text-slate-500">
-          {count}
-        </span>
-      ) : null}
-    </div>
-  );
-}
+import { Zap } from "lucide-react";
+import { Fragment, useEffect, type MouseEvent } from "react";
+import { useDateRange } from "../../lib/dateRangeContext";
+import { useSyncStatus } from "../../lib/syncContext";
+import type { Crumb } from "./crumbs";
 
 /**
  * Writes the selected range the way the preset list does ("Last 90 days")
@@ -162,13 +41,13 @@ function formatRange(range: DateRange): string {
   return `${formatter.format(range.from)} – ${formatter.format(range.to)}`;
 }
 
-function Topbar({ crumbs }: { crumbs: Crumb[] }) {
+export function Topbar({ crumbs }: { crumbs: Crumb[] }) {
   const navigate = useNavigate();
   const { range, setRange } = useDateRange();
   const { phase, runSync } = useSyncStatus();
 
   // One handler, parameterized by target — every crumb with an `href`
-  // navigates the same client-side way (see SidebarNavButton below for the
+  // navigates the same client-side way (see SidebarNavButton for the
   // identical reasoning on why this isn't a plain `<a>`/`Link`).
   const handleCrumbClick =
     (href: string) => (e: MouseEvent<HTMLAnchorElement>) => {
@@ -314,43 +193,5 @@ function Topbar({ crumbs }: { crumbs: Crumb[] }) {
         {isSyncing ? "Syncing…" : "Sync now"}
       </Button>
     </header>
-  );
-}
-
-// SidebarMenuButton always renders a real <a href>, so it can't be nested
-// inside react-router's <NavLink> (which renders its own <a>) — that
-// produces an invalid <a> inside <a> and a hydration error. Instead, compute
-// active state from the current location and drive navigation from
-// onClick, the same way any real anchor integrates with client-side routing.
-function SidebarNavButton({
-  to,
-  icon,
-  children,
-}: {
-  to: string;
-  icon: ReactNode;
-  children: ReactNode;
-}) {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const isActive = location.pathname === to;
-
-  const handleClick = (e: MouseEvent<HTMLAnchorElement>) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
-      return; // let the browser handle new-tab/new-window clicks normally
-    }
-    e.preventDefault();
-    navigate(to);
-  };
-
-  return (
-    <SidebarMenuButton
-      href={to}
-      icon={icon}
-      isActive={isActive}
-      onClick={handleClick}
-    >
-      {children}
-    </SidebarMenuButton>
   );
 }
