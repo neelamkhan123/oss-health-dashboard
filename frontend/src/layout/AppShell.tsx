@@ -9,7 +9,6 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarTrigger,
-  Separator,
   Breadcrumb,
   BreadcrumbList,
   BreadcrumbItem,
@@ -171,40 +170,49 @@ function Topbar({ crumbs }: { crumbs: Crumb[] }) {
   // One handler, parameterized by target — every crumb with an `href`
   // navigates the same client-side way (see SidebarNavButton below for the
   // identical reasoning on why this isn't a plain `<a>`/`Link`).
-  const handleCrumbClick = (href: string) => (e: MouseEvent<HTMLAnchorElement>) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
-      return;
-    }
-    e.preventDefault();
-    navigate(href);
-  };
+  const handleCrumbClick =
+    (href: string) => (e: MouseEvent<HTMLAnchorElement>) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+        return;
+      }
+      e.preventDefault();
+      navigate(href);
+    };
 
   // Just a busy state here — the numbers (and the Stop button) live on the
   // progress toast (see lib/syncContext.tsx), not duplicated on the button.
   const isSyncing = phase !== "idle";
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-6 dark:border-slate-800 dark:bg-slate-950">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 px-3 dark:border-slate-800 dark:bg-slate-950">
       <SidebarTrigger />
-      <Separator orientation="vertical" className="h-5" />
-      <Breadcrumb>
-        <BreadcrumbList>
-          {crumbs.map((crumb, i) => (
-            <Fragment key={crumb.label}>
-              {i > 0 ? <BreadcrumbSeparator /> : null}
-              <BreadcrumbItem>
-                {crumb.href ? (
-                  <BreadcrumbLink href={crumb.href} onClick={handleCrumbClick(crumb.href)}>
-                    {crumb.label}
-                  </BreadcrumbLink>
-                ) : (
-                  <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
-                )}
-              </BreadcrumbItem>
-            </Fragment>
-          ))}
-        </BreadcrumbList>
-      </Breadcrumb>
+      {/* A single crumb ("Overview", "Compare") names a top-level view the
+       * Sidebar already highlights as active — showing it here just
+       * repeats that. The trail only earns its place once there's an
+       * actual "here, via there" to show, i.e. a repo's detail page. */}
+      {crumbs.length > 1 ? (
+        <Breadcrumb>
+          <BreadcrumbList>
+            {crumbs.map((crumb, i) => (
+              <Fragment key={crumb.label}>
+                {i > 0 ? <BreadcrumbSeparator /> : null}
+                <BreadcrumbItem>
+                  {crumb.href ? (
+                    <BreadcrumbLink
+                      href={crumb.href}
+                      onClick={handleCrumbClick(crumb.href)}
+                    >
+                      {crumb.label}
+                    </BreadcrumbLink>
+                  ) : (
+                    <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
+                  )}
+                </BreadcrumbItem>
+              </Fragment>
+            ))}
+          </BreadcrumbList>
+        </Breadcrumb>
+      ) : null}
       <div className="flex-1" />
       {/* DateRangePicker renders its own outline trigger with a calendar
        * icon, so it *is* the date button rather than something a separate
@@ -220,7 +228,12 @@ function Topbar({ crumbs }: { crumbs: Crumb[] }) {
         formatValue={formatRange}
         disabled={(date) => date > new Date()}
       />
-      <Button size="sm" icon={<Zap size={14} />} loading={isSyncing} onClick={runSync}>
+      <Button
+        size="sm"
+        icon={<Zap size={14} />}
+        loading={isSyncing}
+        onClick={runSync}
+      >
         {isSyncing ? "Syncing…" : "Sync now"}
       </Button>
     </header>
@@ -254,7 +267,12 @@ function SidebarNavButton({
   };
 
   return (
-    <SidebarMenuButton href={to} icon={icon} isActive={isActive} onClick={handleClick}>
+    <SidebarMenuButton
+      href={to}
+      icon={icon}
+      isActive={isActive}
+      onClick={handleClick}
+    >
       {children}
     </SidebarMenuButton>
   );
