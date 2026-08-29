@@ -85,17 +85,35 @@ export function AppShell() {
   }, [isDesktop, open]);
 
   return (
-    // h-svh + overflow-hidden, on top of the library's own min-h-svh:
-    // SidebarProvider's own class only sets a *floor* on its height, not a
-    // ceiling, so with no cap it grows to fit whatever <main> renders (a
-    // long repo-detail page measured at 6700px+) rather than staying
-    // pinned to the viewport. That's what let the whole page scroll as one
-    // unit — dragging the sidebar's own h-svh <aside> along with it, since
-    // "always exactly one viewport tall" and "never moves as the page
-    // scrolls" aren't the same guarantee. Capping the actual height here
-    // gives <main>'s existing flex-1 overflow-y-auto a bounded height to
-    // size against, so it becomes the only thing that scrolls.
-    <SidebarProvider open={open} onOpenChange={setOpen} className="h-svh overflow-hidden">
+    // The shell must be exactly one viewport tall and no taller: without a
+    // ceiling it grows to fit whatever <main> renders (a long repo-detail
+    // page measured at 6700px+), which makes the whole page scroll as one
+    // unit and drags the sidebar along with it, and leaves <main>'s
+    // flex-1 overflow-y-auto with no bounded height to size against.
+    //
+    // Set inline, and in `dvh`, rather than as `h-svh` classes, because
+    // height was being derived from THREE separate places that could
+    // disagree: SidebarProvider's own `min-h-svh`, an `h-svh` override
+    // here (two conflicting utilities on one element — whichever Tailwind
+    // happens to emit later silently wins, the same trap Calendar and
+    // DateRangePicker both hit earlier), and Sidebar's <aside> reading
+    // `h-svh` a third time on its own. An inline style has no such
+    // ambiguity — the reasoning the library itself documents for
+    // Sidebar's width — so this is now the single source of truth, with
+    // the <aside> below just filling its parent instead of re-deriving.
+    //
+    // `dvh`, not `svh`: the spec defines the *small* viewport as the one
+    // with dynamic UA interface expanded and explicitly permits UAs not
+    // to update it as that UI changes, so `svh` can legitimately report a
+    // shorter viewport than the window actually is — which renders as the
+    // app ending early with dead space below it. `dvh` always tracks the
+    // current viewport, which is what a fixed app shell needs.
+    <SidebarProvider
+      open={open}
+      onOpenChange={setOpen}
+      style={{ height: "100dvh", minHeight: "100dvh" }}
+      className="overflow-hidden"
+    >
       {/* Docked (an ordinary flex sibling of the content, per the library's
        * own layout) at lg and up; below that, taken out of flow entirely
        * via `fixed` so it floats *above* full-width content instead of
@@ -103,7 +121,15 @@ export function AppShell() {
        * shouldn't affect content width on mobile". z-40 clears the
        * backdrop below (z-20) and the Topbar above that (z-30), so the
        * open drawer always renders on top of both. */}
-      <Sidebar className="max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-40 max-lg:shadow-xl">
+      <Sidebar
+        // Fills the shell above rather than reading the viewport a second
+        // time — Sidebar's own class hardcodes `h-svh`, so without this the
+        // panel and the shell it sits in are two independent measurements
+        // of "one viewport" that can disagree. Inline for the same
+        // beats-any-class reason as the shell's own height.
+        style={{ height: "100%" }}
+        className="max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-40 max-lg:shadow-xl"
+      >
         <SidebarHeader>
           <span className="flex items-center gap-2.5 px-2 text-sm font-semibold tracking-tight text-slate-950 dark:text-white">
             <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-[13px] text-white dark:bg-white dark:text-slate-950">
