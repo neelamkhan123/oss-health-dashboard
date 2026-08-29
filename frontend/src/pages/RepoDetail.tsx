@@ -4,7 +4,6 @@ import {
   Badge,
   Button,
   Card,
-  DataTable,
   AvatarGroup,
   Avatar,
   AvatarFallback,
@@ -16,6 +15,7 @@ import { Star, ExternalLink, TriangleAlert } from "lucide-react";
 import { PageHeader } from "../layout/PageHeader";
 import { CommitHeatmap } from "../components/CommitHeatmap";
 import { MergeTimeDistribution } from "../components/MergeTimeDistribution";
+import { StyledDataTable } from "../components/StyledDataTable";
 import { fetchRepoFull, fetchContributors } from "../lib/api";
 import { useFetch } from "../lib/useFetch";
 import { useDateRange } from "../lib/dateRangeContext";
@@ -206,8 +206,8 @@ function ContributorLeaderboard({
   const sorted = [...rows].sort((a, b) => b.commits - a.commits);
 
   return (
-    <Card className="p-6">
-      <div className="mb-3 flex items-start justify-between gap-4">
+    <div className="flex flex-col gap-3.5">
+      <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1.5">
           <h2 className="m-0 text-sm font-semibold text-slate-950 dark:text-white">
             Contributor leaderboard
@@ -229,7 +229,7 @@ function ContributorLeaderboard({
           </AvatarGroup>
         </div>
       </div>
-      <DataTable columns={contributorColumns} data={sorted} getRowId={(r) => r.login} />
-    </Card>
+      <StyledDataTable columns={contributorColumns} data={sorted} getRowId={(r) => r.login} />
+    </div>
   );
 }

@@ -2,7 +2,6 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   StatCard,
-  DataTable,
   Skeleton,
   EmptyState,
   Card,
@@ -13,6 +12,7 @@ import {
   toast,
   type DataTableColumn,
 } from "@neelamkhan21/ui";
+import { StyledDataTable } from "../components/StyledDataTable";
 import {
   Clock,
   CircleAlert,
@@ -215,29 +215,7 @@ function TrackedRepositories({
   // pre-sort the rows we hand it instead, fastest-merging repo first.
   const rows = [...repos].sort((a, b) => (a.merge.v ?? 0) - (b.merge.v ?? 0));
 
-  return (
-    // DataTable exposes no header-styling prop, and DataTableColumn's own
-    // `className` reaches the body cells too (same field, both call
-    // sites) — an arbitrary-variant descendant selector scoped to this
-    // card is what actually hits only the header, without a
-    // component-library change. It also naturally out-specifies
-    // TableHead's own hardcoded `h-10 px-3` (a two-element compound
-    // selector beats a single utility class on specificity), so this
-    // wins regardless of which order Tailwind happens to emit either
-    // rule in — no `!important` needed.
-    //
-    // `overflow-hidden`, not rounding the row/cells themselves: a <tr>'s
-    // background doesn't reliably clip to a border-radius the way a
-    // normal box does (that's why the header's square corners were
-    // poking past the card's rounded edge), and rounding only the outer
-    // header cells' corners individually is exactly the kind of
-    // per-cell-fragile fix that breaks the next time a column is added
-    // or reordered. Clipping the whole card to its own already-rounded
-    // shape is the one fix that doesn't care what's inside it.
-    <Card className="overflow-hidden [&_thead_th]:bg-slate-50 [&_thead_th]:py-3 dark:[&_thead_th]:bg-slate-900 [&_thead_th]:border-b [&_thead_th]:border-slate-200 dark:[&_thead_th]:border-slate-800 [&_thead_th]:whitespace-nowrap">
-      <DataTable columns={columns} data={rows} getRowId={(repo) => repo.id} />
-    </Card>
-  );
+  return <StyledDataTable columns={columns} data={rows} getRowId={(repo) => repo.id} />;
 }
 
 /**

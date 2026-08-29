@@ -215,8 +215,8 @@ function CompareSkeleton() {
 function CoreMetrics({ selected, days }: { selected: RepoStats[]; days: number }) {
   const rows = compareRows(days);
   return (
-    <Card className="p-6">
-      <div className="mb-3 flex flex-col gap-1.5">
+    <div className="flex flex-col gap-3.5">
+      <div className="flex flex-col gap-1.5">
         <h2 className="m-0 text-sm font-semibold text-slate-950 dark:text-white">
           Core metrics
         </h2>
@@ -227,61 +227,65 @@ function CoreMetrics({ selected, days }: { selected: RepoStats[]; days: number }
       {/* Table, not DataTable: DataTable is driven by a columns/data pair
        * where each row is one record, which is exactly the orientation this
        * table inverts. Sorting and filtering would also be meaningless over
-       * six fixed metric rows. */}
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Metric</TableHead>
-              {selected.map((repo) => (
-                <TableHead key={repo.id} className="text-right">
-                  {repo.id}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row) => {
-              const values = selected
-                .map((repo) => row.read(repo).v)
-                .filter((v): v is number => v !== null);
-              // A tie across every value (most often 0 across the board,
-              // before a metric has any real data yet) isn't a "best" —
-              // marking all of them would say nothing except that nothing
-              // has synced. Only a value strictly ahead of at least one
-              // other counts.
-              const allTied = values.length > 0 && values.every((v) => v === values[0]);
-              const best = values.length && !allTied ? (row.lower ? Math.min(...values) : Math.max(...values)) : null;
-              return (
-                <TableRow key={row.label}>
-                  <TableCell className="text-slate-600 dark:text-slate-300">
-                    {row.label}
-                  </TableCell>
-                  {selected.map((repo) => {
-                    const value = row.read(repo);
-                    // Nothing is "best" when there's only one column, or
-                    // when this repo has no value for the row at all (e.g.
-                    // response time before any first-response is backfilled).
-                    const isBest = selected.length > 1 && best !== null && value.v === best;
-                    return (
-                      <TableCell key={repo.id} className="text-right tabular-nums">
-                        <span
-                          className={`inline-flex items-center justify-end gap-2 ${
-                            isBest ? "font-semibold" : ""
-                          }`}
-                        >
-                          {value.d}
-                          {isBest ? <Badge variant="outline">Best</Badge> : null}
-                        </span>
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
-    </Card>
+       * six fixed metric rows. Still styled to match StyledDataTable's
+       * header (gray background, padding, corner clip) by hand, for the
+       * same "every table in this app looks like this" reason. */}
+      <Card className="overflow-hidden [&_thead_th]:whitespace-nowrap [&_thead_th]:bg-slate-50 [&_thead_th]:py-3 [&_thead_th]:border-b [&_thead_th]:border-slate-200 dark:[&_thead_th]:bg-slate-900 dark:[&_thead_th]:border-slate-800">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Metric</TableHead>
+                {selected.map((repo) => (
+                  <TableHead key={repo.id} className="text-right">
+                    {repo.id}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => {
+                const values = selected
+                  .map((repo) => row.read(repo).v)
+                  .filter((v): v is number => v !== null);
+                // A tie across every value (most often 0 across the board,
+                // before a metric has any real data yet) isn't a "best" —
+                // marking all of them would say nothing except that nothing
+                // has synced. Only a value strictly ahead of at least one
+                // other counts.
+                const allTied = values.length > 0 && values.every((v) => v === values[0]);
+                const best = values.length && !allTied ? (row.lower ? Math.min(...values) : Math.max(...values)) : null;
+                return (
+                  <TableRow key={row.label}>
+                    <TableCell className="text-slate-600 dark:text-slate-300">
+                      {row.label}
+                    </TableCell>
+                    {selected.map((repo) => {
+                      const value = row.read(repo);
+                      // Nothing is "best" when there's only one column, or
+                      // when this repo has no value for the row at all (e.g.
+                      // response time before any first-response is backfilled).
+                      const isBest = selected.length > 1 && best !== null && value.v === best;
+                      return (
+                        <TableCell key={repo.id} className="text-right tabular-nums">
+                          <span
+                            className={`inline-flex items-center justify-end gap-2 ${
+                              isBest ? "font-semibold" : ""
+                            }`}
+                          >
+                            {value.d}
+                            {isBest ? <Badge variant="outline">Best</Badge> : null}
+                          </span>
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+    </div>
   );
 }
