@@ -29,8 +29,16 @@ export interface StyledDataTableProps<T> extends DataTableProps<T> {
  * per-cell-fragile fix that breaks the next time a column is added or
  * reordered. Clipping the whole card to its own already-rounded shape is
  * the one fix that doesn't care what's inside it.
+ *
+ * Defaults `pageSize` to 10 rather than leaving `DataTable`'s own
+ * unpaginated default in place: every table in this app renders real,
+ * unbounded server data (a busy repo's contributor list runs well past a
+ * hundred rows), and `DataTable` only renders its pagination footer at all
+ * once there's more than one page — so a table with 10 rows or fewer looks
+ * identical to today, and one with 90 doesn't dump every row on screen at
+ * once. Still overridable per call site, same as any other prop here.
  */
-export function StyledDataTable<T>({ className, ...tableProps }: StyledDataTableProps<T>) {
+export function StyledDataTable<T>({ className, pageSize = 10, ...tableProps }: StyledDataTableProps<T>) {
   return (
     <Card
       className={[
@@ -43,7 +51,7 @@ export function StyledDataTable<T>({ className, ...tableProps }: StyledDataTable
         .filter(Boolean)
         .join(" ")}
     >
-      <DataTable {...tableProps} />
+      <DataTable pageSize={pageSize} {...tableProps} />
     </Card>
   );
 }
