@@ -19,10 +19,10 @@ import { LazyTrendChartCard, TrendChartCardSkeleton } from "../components/LazyTr
 import type { TrendMetric } from "../components/TrendChartCard";
 import { fetchOverview } from "../lib/api";
 import { repoColor } from "../lib/types";
-import { TRACKED_REPOS } from "../lib/constants";
 import { useFetch } from "../lib/useFetch";
 import { useDateRange } from "../lib/dateRangeContext";
 import { useSyncStatus } from "../lib/syncContext";
+import { useTrackedRepos } from "../lib/trackedReposContext";
 import type { RepoStats, MetricValue } from "../lib/types";
 
 /**
@@ -49,11 +49,16 @@ function compareRows(days: number): { label: string; read: (repo: RepoStats) => 
 
 export function Compare() {
   const { days } = useDateRange();
-  const { version } = useSyncStatus();
-  const { isLoading, isError, data, retry } = useFetch(`compare-overview:${days}:${version}`, () =>
-    fetchOverview(days),
+  const { version: syncVersion } = useSyncStatus();
+  const { repoNames, version: trackedVersion } = useTrackedRepos();
+  const { isLoading, isError, data, retry } = useFetch(
+    `compare-overview:${days}:${syncVersion}:${trackedVersion}`,
+    () => fetchOverview(days),
   );
-  const [selectedIds, setSelectedIds] = useState<string[]>(TRACKED_REPOS);
+  // Seeded from whatever's tracked at mount — a repo added later shows up
+  // as a new toggle (built straight from the live `repoNames` below) but
+  // starts unselected, the same as any toggle starts unpressed.
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => repoNames);
   const [metric, setMetric] = useState<TrendMetric>("merge");
 
   const repos = data?.repos ?? [];
@@ -83,7 +88,7 @@ export function Compare() {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-          {TRACKED_REPOS.map((repoId) => (
+          {repoNames.map((repoId) => (
             <Toggle
               key={repoId}
               variant="outline"
@@ -148,7 +153,7 @@ export function Compare() {
                 // gives it a tone class; a descendant selector out-specifies
                 // that without having to fight the merge order. These cards
                 // have no `icon`, so the sparkline is the only svg matched.
-                style={{ "--repo-color": repoColor(repo.id, TRACKED_REPOS) } as CSSProperties}
+                style={{ "--repo-color": repoColor(repo.id, repoNames) } as CSSProperties}
                 className="[&_svg]:text-(--repo-color)"
               >
                 {/* The caption goes in `children`, not `deltaLabel`:
@@ -170,6 +175,7 @@ export function Compare() {
           <Suspense fallback={<TrendChartCardSkeleton />}>
             <LazyTrendChartCard
               repos={selected}
+              trackedRepoNames={repoNames}
               metric={metric}
               onMetricChange={setMetric}
             />

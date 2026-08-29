@@ -62,6 +62,32 @@ export function stopSync(): Promise<{ cancelled: string[] }> {
   return postJSON("/dashboard/sync/stop");
 }
 
+/** The tracked-repo list — the Sidebar and Compare page's source of truth
+ *  (see lib/trackedReposContext.tsx), not the hardcoded fallback in
+ *  lib/constants.ts. */
+export function fetchTrackedRepos(): Promise<{ fullName: string; id: number }[]> {
+  return getJSON("/dashboard/repos");
+}
+
+/** The "Add repository" dialog's submit. Not fire-and-forget like
+ *  `postJSON`'s other callers: a bad name, an already-tracked repo, or one
+ *  that doesn't exist on GitHub all come back as a specific error message
+ *  (the backend's `HTTPException(detail=...)`) rather than a bare status
+ *  code, since the dialog needs to show the user *why* it failed. */
+export async function addTrackedRepo(fullName: string): Promise<{ fullName: string; id: number }> {
+  const res = await fetch(`${API_URL}/dashboard/repos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fullName }),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(body?.detail || `/dashboard/repos -> ${res.status}`);
+  }
+  return body;
+}
+
 type ContributorsResponse = {
   username: string;
   avatarUrl: string | null;

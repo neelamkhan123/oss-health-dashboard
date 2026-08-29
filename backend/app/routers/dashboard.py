@@ -1,14 +1,23 @@
 # backend/app/routers/dashboard.py
+import re
 import datetime
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import func, case, and_, within_group
 from sqlalchemy.orm import Session
 from app.services.db import get_db
-from app.services.cache import cache_get, cache_set
-from app.services.sync import sync_all_repos, get_sync_status, cancel_sync
+from app.services.cache import cache_get, cache_set, cache_delete_prefix
+from app.services.sync import sync_all_repos, sync_one_repo, get_sync_status, cancel_sync, GITHUB_API, HEADERS
 from app.models.models import Contributor, Repo, PullRequest, Issue, Commit
 
 router = APIRouter()
+
+# GitHub's own rules are looser than this (usernames allow single internal
+# hyphens up to 39 chars; repo names allow '.' '_' '-' up to 100), but this
+# only needs to reject obvious junk before spending a GitHub API call on
+# it — the call itself is the real validation.
+REPO_FULL_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 
 # Bounds on the `days` query param the Topbar's date-range picker feeds into
 # /overview and /full — 1 day minimum (a same-day window is still a valid,
@@ -594,3 +603,64 @@ def stop_sync():
     actually got cancelled — clicking Stop after everything already
     finished is a harmless no-op, reported as an empty list."""
     return cancel_sync()
+
+class AddRepoRequest(BaseModel):
+    fullName: str
+
+@router.get("/repos")
+def list_repos(db: Session = Depends(get_db)):
+    """The tracked-repo list, for the Sidebar and the Compare page — both
+    need it before (and independent of) any per-repo stats. Ordered by id
+    (insertion order) so a repo's position — and with it, repoColor's
+    palette assignment on the frontend — stays stable as more get added,
+    rather than shifting whenever the set changes."""
+    repos = db.query(Repo).order_by(Repo.id).all()
+    return [{"fullName": repo.full_name, "id": repo.id} for repo in repos]
+
+@router.post("/repos")
+def add_repo(payload: AddRepoRequest, db: Session = Depends(get_db)):
+    """The Overview page's "Add repository" dialog. Verifies the repo is a
+    real, public GitHub repository *synchronously* (so a typo or a private
+    repo gets an immediate, specific error) before creating its row —
+    unlike sync_one_repo, which creates a bare row first and would only
+    fail invisibly, inside a background task, on a bad name. The full
+    PR/issue/commit/contributor sync still happens in the background:
+    that part can genuinely take minutes, which a request handler
+    shouldn't block on."""
+    full_name = payload.fullName.strip()
+    if not REPO_FULL_NAME_RE.match(full_name):
+        raise HTTPException(422, 'Expected "owner/repo", e.g. "facebook/react"')
+
+    if db.query(Repo).filter_by(full_name=full_name).first():
+        raise HTTPException(409, f"{full_name} is already tracked")
+
+    owner, name = full_name.split("/")
+    try:
+        response = httpx.get(f"{GITHUB_API}/repos/{owner}/{name}", headers=HEADERS, timeout=10)
+    except httpx.HTTPError:
+        raise HTTPException(502, "Couldn't reach GitHub to verify this repository")
+    if response.status_code == 404:
+        raise HTTPException(404, f"{full_name} isn't a public GitHub repository")
+    if response.status_code != 200:
+        raise HTTPException(502, f"GitHub returned an unexpected error ({response.status_code})")
+
+    data = response.json()
+    license_info = data.get("license") or {}
+    repo = Repo(
+        full_name=full_name,
+        stars=data.get("stargazers_count"),
+        forks=data.get("forks_count"),
+        language=data.get("language"),
+        license=license_info.get("spdx_id") or license_info.get("name"),
+    )
+    db.add(repo)
+    db.commit()
+    db.refresh(repo)
+
+    sync_one_repo.delay(full_name)
+    # The overview list is cached per `days` window; a newly tracked repo
+    # (even before its own sync finishes) needs to show up there right
+    # away rather than waiting out the cache's 15-minute TTL.
+    cache_delete_prefix("overview:")
+
+    return {"fullName": repo.full_name, "id": repo.id}

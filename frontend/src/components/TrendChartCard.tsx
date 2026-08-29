@@ -16,7 +16,6 @@ import {
   Tooltip as RechartsTooltip,
 } from "recharts";
 import { trailingMonths, repoColor, type RepoStats } from "../lib/types";
-import { TRACKED_REPOS } from "../lib/constants";
 
 /** Which of the two per-repo time series the trend chart is showing. */
 export type TrendMetric = "merge" | "issue";
@@ -46,11 +45,17 @@ type TrendRow = Record<string, string | number>;
  */
 export function TrendChartCard({
   repos,
+  trackedRepoNames,
   metric,
   onMetricChange,
   height = 280,
 }: {
   repos: RepoStats[];
+  /** The full tracked-repo list, for stable per-repo colors — not derived
+   *  from `repos` itself, since Compare passes only the *selected* subset
+   *  there, and a repo's color shouldn't shift depending on which other
+   *  repos happen to be selected alongside it. */
+  trackedRepoNames: string[];
   metric: TrendMetric;
   onMetricChange: (metric: TrendMetric) => void;
   height?: number;
@@ -102,7 +107,7 @@ export function TrendChartCard({
         legend={
           <ChartLegend>
             {repos.map((repo) => (
-              <ChartLegendItem key={repo.id} color={repoColor(repo.id, TRACKED_REPOS)}>
+              <ChartLegendItem key={repo.id} color={repoColor(repo.id, trackedRepoNames)}>
                 {repo.id}
               </ChartLegendItem>
             ))}
@@ -143,7 +148,7 @@ export function TrendChartCard({
                 key={repo.id}
                 type="monotone"
                 dataKey={repo.id}
-                stroke={repoColor(repo.id, TRACKED_REPOS)}
+                stroke={repoColor(repo.id, trackedRepoNames)}
                 strokeWidth={2}
                 dot={false}
               />
