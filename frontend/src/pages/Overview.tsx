@@ -1,4 +1,4 @@
-import { Suspense, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   StatCard,
@@ -24,8 +24,6 @@ import {
   type DataTableColumn,
 } from "@neelamkhan21/ui";
 import { Clock, CircleAlert, Users, TrendingUp, Inbox, Folder, Plus, TriangleAlert } from "lucide-react";
-import { LazyTrendChartCard, TrendChartCardSkeleton } from "../components/LazyTrendChartCard";
-import type { TrendMetric } from "../components/TrendChartCard";
 import { fetchOverview, addTrackedRepo } from "../lib/api";
 import { repoColor } from "../lib/types";
 import { useFetch } from "../lib/useFetch";
@@ -46,7 +44,6 @@ export function Overview() {
     `overview:${days}:${syncVersion}:${trackedVersion}`,
     () => fetchOverview(days),
   );
-  const [metric, setMetric] = useState<TrendMetric>("merge");
 
   if (isLoading) return <OverviewSkeleton />;
   if (isError || !data) return <OverviewError onRetry={retry} />;
@@ -92,15 +89,6 @@ export function Overview() {
           icon={<TrendingUp size={16} />}
         />
       </div>
-
-      <Suspense fallback={<TrendChartCardSkeleton />}>
-        <LazyTrendChartCard
-          repos={repos}
-          trackedRepoNames={repoNames}
-          metric={metric}
-          onMetricChange={setMetric}
-        />
-      </Suspense>
 
       <TrackedRepositories repos={repos} days={days} trackedRepoNames={repoNames} />
     </div>
@@ -337,10 +325,6 @@ function OverviewSkeleton() {
           </Card>
         ))}
       </div>
-      <Card className="flex flex-col gap-5 p-6">
-        <Skeleton className="h-4 w-45" />
-        <Skeleton className="h-62 w-full" />
-      </Card>
       <Card className="flex flex-col gap-3.5 p-6">
         <Skeleton className="h-4 w-55" />
         {[1, 2, 3].map((i) => (
