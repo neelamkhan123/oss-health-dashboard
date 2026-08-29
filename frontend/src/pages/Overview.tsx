@@ -60,7 +60,7 @@ export function Overview() {
         </p>
       </div>
 
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
         <StatCard
           label="Avg. time to merge"
           value={kpis.avgMergeTime.value}
@@ -234,7 +234,7 @@ function TrackedRepositories({
     // per-cell-fragile fix that breaks the next time a column is added
     // or reordered. Clipping the whole card to its own already-rounded
     // shape is the one fix that doesn't care what's inside it.
-    <Card className="overflow-hidden [&_thead_th]:bg-slate-50 [&_thead_th]:py-3 dark:[&_thead_th]:bg-slate-900 [&_thead_th]:border-b [&_thead_th]:border-slate-200 dark:[&_thead_th]:border-slate-800">
+    <Card className="overflow-hidden [&_thead_th]:bg-slate-50 [&_thead_th]:py-3 dark:[&_thead_th]:bg-slate-900 [&_thead_th]:border-b [&_thead_th]:border-slate-200 dark:[&_thead_th]:border-slate-800 [&_thead_th]:whitespace-nowrap">
       <DataTable columns={columns} data={rows} getRowId={(repo) => repo.id} />
     </Card>
   );
@@ -288,7 +288,10 @@ function AddRepositoryInline() {
           Any public GitHub repository — starts syncing as soon as it's added.
         </p>
       </div>
-      <form onSubmit={handleSubmit} className="flex items-center gap-2 w-1/2">
+      <form
+        onSubmit={handleSubmit}
+        className="flex flex-col md:flex-row items-center gap-2 lg:w-1/2"
+      >
         <Input
           aria-label="Repository to track (owner/repo)"
           placeholder="owner/repo"
@@ -304,6 +307,7 @@ function AddRepositoryInline() {
           size="md"
           loading={isSubmitting}
           disabled={!fullName.trim()}
+          className="w-full md:w-auto"
         >
           Add
         </Button>
@@ -324,7 +328,7 @@ function OverviewSkeleton() {
         <Skeleton className="size-3.5 rounded-full" />
         <span>Loading dashboard data</span>
       </div>
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
         {[1, 2, 3, 4].map((i) => (
           <Card key={i} className="flex flex-col gap-4 p-5">
             <Skeleton className="h-3 w-28" />
@@ -368,7 +372,7 @@ function OverviewEmpty() {
         title="No repositories synced yet"
         description="The tracked repos exist, but nothing has synced from GitHub yet — there's no mock data standing in for it anymore."
       />
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
         {steps.map(([title, description]) => (
           <Card key={title} className="flex flex-col gap-1.5 p-5">
             <span className="text-sm font-medium text-slate-950 dark:text-white">
