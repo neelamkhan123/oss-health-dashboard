@@ -1,0 +1,143 @@
+version: "3"
+
+vars:
+  COMPOSE: docker compose
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  setup:
+    desc: First-time setup — env files, frontend deps, build images, run migrations
+    cmds:
+      - task: env
+      - cd frontend && npm install
+      - "{{.COMPOSE}} build"
+      - task: migrate
+      - |
+        echo ""
+        echo "Set a real GITHUB_TOKEN in .env (public_repo scope), then:"
+        echo "  task dev"
+
+  env:
+    desc: Create .env / frontend/.env.local from their .example files if missing (never overwrites)
+    status:
+      - test -f .env
+      - test -f frontend/.env.local
+    cmds:
+      - test -f .env || cp .env.example .env
+      - test -f frontend/.env.local || cp frontend/.env.example frontend/.env.local
+
+  dev:
+    desc: The one command — backend up in the background, frontend dev server in the foreground
+    deps: [up]
+    cmds:
+      - task: wait-healthy
+      - cd frontend && npm run dev
+
+  up:
+    desc: Start Postgres/Redis/API/worker/beat in the background
+    cmds:
+      - "{{.COMPOSE}} up -d"
+
+  down:
+    desc: Stop all backend containers (data is kept — see clean to wipe it)
+    cmds:
+      - "{{.COMPOSE}} down"
+
+  restart:
+    desc: 'Rebuild and restart one service — task restart -- api'
+    cmds:
+      - "{{.COMPOSE}} up -d --build {{.CLI_ARGS}}"
+
+  logs:
+    desc: 'Tail backend logs — all services, or one: task logs -- worker'
+    cmds:
+      - "{{.COMPOSE}} logs -f {{.CLI_ARGS}}"
+
+  wait-healthy:
+    desc: Block until the API actually answers (not just "container started")
+    silent: true
+    cmds:
+      - |
+        for i in $(seq 1 30); do
+          curl -sf http://localhost:8000/health >/dev/null 2>&1 && exit 0
+          sleep 1
+        done
+        echo "API never came up — task logs -- api" >&2
+        exit 1
+
+  migrate:
+    desc: Apply database migrations
+    deps: [up]
+    cmds:
+      - task: wait-healthy
+      - "{{.COMPOSE}} exec api alembic upgrade head"
+
+  migrate:new:
+    desc: 'Generate a migration from model changes — task migrate:new -- "add foo column"'
+    deps: [up]
+    cmds:
+      - "{{.COMPOSE}} exec api alembic revision --autogenerate -m \"{{.CLI_ARGS}}\""
+
+  sync:
+    desc: Trigger a GitHub sync for all tracked repos right now, instead of waiting for beat's 15-minute schedule
+    deps: [up]
+    cmds:
+      - task: wait-healthy
+      - "{{.COMPOSE}} exec api python -c \"from app.services.sync import sync_all_repos; sync_all_repos.delay()\""
+      - echo "Sync queued — task logs -- worker to watch it run"
+
+  build:
+    desc: Production build the frontend
+    dir: frontend
+    cmds:
+      - npm run build
+
+  typecheck:
+    desc: Type-check the frontend
+    dir: frontend
+    cmds:
+      - npx tsc -b --noEmit
+
+  lint:
+    desc: Lint the frontend
+    dir: frontend
+    cmds:
+      - npx eslint .
+
+  test:
+    desc: Run everything test-shaped — backend pytest, frontend typecheck + lint
+    cmds:
+      - task: test:backend
+      - task: test:frontend
+
+  test:backend:
+    desc: Run backend tests
+    deps: [up]
+    cmds:
+      - task: wait-healthy
+      - "{{.COMPOSE}} exec api pytest -v"
+
+  test:frontend:
+    desc: 'Type-check + lint the frontend (no component test framework is set up yet — ask if you want one)'
+    deps: [typecheck, lint]
+
+  psql:
+    desc: Open a psql shell against the local database
+    cmds:
+      - "{{.COMPOSE}} exec postgres psql -U oss_dashboard -d oss_dashboard"
+
+  redis-cli:
+    desc: Open a redis-cli shell against the local cache
+    cmds:
+      - "{{.COMPOSE}} exec redis redis-cli"
+
+  clean:
+    desc: Stop containers AND delete the Postgres volume — all synced data is gone. Confirms first.
+    prompt: This deletes every synced repo, PR, issue and commit. Continue?
+    cmds:
+      - "{{.COMPOSE}} down -v"
