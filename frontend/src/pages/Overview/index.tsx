@@ -32,10 +32,12 @@ export function Overview() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col px-2">
+      <div className="flex flex-col gap-1.5">
         {/* TODO: Replace hardcoded name with dynamic user name */}
-        <h1 className="text-2xl font-bold">Welcome back, Neelam</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
+        <h1 className="m-0 text-2xl leading-tight font-semibold tracking-tight text-slate-950 dark:text-white">
+          Welcome back, Neelam
+        </h1>
+        <p className="m-0 text-xs text-slate-500 dark:text-slate-400">
           Here's an overview of your repositories and key metrics for the past{" "}
           {days} days.
         </p>

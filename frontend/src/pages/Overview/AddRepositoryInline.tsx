@@ -43,7 +43,7 @@ export function AddRepositoryInline() {
 
   return (
     <div className="flex flex-col flex-wrap gap-2">
-      <div className="flex flex-col px-2">
+      <div className="flex flex-col gap-1.5">
         <h2 className="m-0 font-semibold text-slate-950 dark:text-white">
           Add a repository
         </h2>
