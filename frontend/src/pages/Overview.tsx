@@ -234,7 +234,7 @@ function TrackedRepositories({
     // per-cell-fragile fix that breaks the next time a column is added
     // or reordered. Clipping the whole card to its own already-rounded
     // shape is the one fix that doesn't care what's inside it.
-    <Card className="overflow-hidden [&_thead_th]:bg-slate-50 [&_thead_th]:py-3 dark:[&_thead_th]:bg-slate-900">
+    <Card className="overflow-hidden [&_thead_th]:bg-slate-50 [&_thead_th]:py-3 dark:[&_thead_th]:bg-slate-900 [&_thead_th]:border-b [&_thead_th]:border-slate-200 dark:[&_thead_th]:border-slate-800">
       <DataTable columns={columns} data={rows} getRowId={(repo) => repo.id} />
     </Card>
   );
