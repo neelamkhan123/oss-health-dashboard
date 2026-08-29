@@ -6,6 +6,7 @@ import { AppShell } from "./layout/AppShell";
 import { LazyOverview, LazyRepoDetail, LazyCompare } from "./pages/lazy";
 import { DateRangeProvider } from "./lib/dateRangeContext";
 import { SyncProvider } from "./lib/syncContext";
+import { TrackedReposProvider } from "./lib/trackedReposContext";
 import "./index.css";
 import { reportWebVitals } from "./reportWebVitals";
 
@@ -14,15 +15,17 @@ createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <DateRangeProvider>
         <SyncProvider>
-          <Suspense fallback={<p className="p-6 text-sm text-slate-500 dark:text-slate-400">Loading…</p>}>
-            <Routes>
-              <Route element={<AppShell />}>
-                <Route path="/" element={<LazyOverview />} />
-                <Route path="/repos/:repoId" element={<LazyRepoDetail />} />
-                <Route path="/compare" element={<LazyCompare />} />
-              </Route>
-            </Routes>
-          </Suspense>
+          <TrackedReposProvider>
+            <Suspense fallback={<p className="p-6 text-sm text-slate-500 dark:text-slate-400">Loading…</p>}>
+              <Routes>
+                <Route element={<AppShell />}>
+                  <Route path="/" element={<LazyOverview />} />
+                  <Route path="/repos/:repoId" element={<LazyRepoDetail />} />
+                  <Route path="/compare" element={<LazyCompare />} />
+                </Route>
+              </Routes>
+            </Suspense>
+          </TrackedReposProvider>
         </SyncProvider>
       </DateRangeProvider>
       {/* Mounted once, outside the route tree so it survives navigation —

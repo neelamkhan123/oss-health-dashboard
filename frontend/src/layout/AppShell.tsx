@@ -23,9 +23,9 @@ import {
 } from "@neelamkhan21/ui";
 import { LayoutDashboard, Activity, Folder, Zap } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
-import { TRACKED_REPOS } from "../lib/constants";
 import { useDateRange } from "../lib/dateRangeContext";
 import { useSyncStatus } from "../lib/syncContext";
+import { useTrackedRepos } from "../lib/trackedReposContext";
 
 /** The trailing breadcrumb crumb for the current route. */
 function currentCrumb(pathname: string): string {
@@ -41,6 +41,7 @@ function currentCrumb(pathname: string): string {
 
 export function AppShell() {
   const location = useLocation();
+  const { repoNames } = useTrackedRepos();
 
   return (
     <SidebarProvider>
@@ -72,9 +73,9 @@ export function AppShell() {
           </SidebarGroup>
 
           <SidebarGroup>
-            <GroupLabel count={TRACKED_REPOS.length}>Tracked repos</GroupLabel>
+            <GroupLabel count={repoNames.length}>Tracked repos</GroupLabel>
             <SidebarMenu>
-              {TRACKED_REPOS.map((repo) => (
+              {repoNames.map((repo) => (
                 <SidebarMenuItem key={repo}>
                   <SidebarNavButton
                     to={`/repos/${encodeURIComponent(repo)}`}

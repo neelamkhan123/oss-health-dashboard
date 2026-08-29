@@ -1,6 +1,7 @@
 import hashlib
 import httpx
 import datetime
+import json
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from app.config import settings
@@ -11,7 +12,11 @@ from app.services.cache import cache_get, cache_set, cache_delete_prefix, r
 engine = create_engine(settings.database_url)
 SessionLocal = sessionmaker(bind=engine)
 
-TRACKED_REPOS = ["facebook/react", "vuejs/core", "microsoft/vscode"]  # curated list, see Part 0 discussion
+# Bootstrap seed only, for a brand-new database with no Repo rows yet — see
+# sync_all_repos below. Once anything exists in the repos table (whether
+# from this seed or "Add repository" in the UI), that table is the actual
+# source of truth for what's tracked; this list is never consulted again.
+TRACKED_REPOS = ["facebook/react", "vuejs/core", "microsoft/vscode"]
 GITHUB_API = "https://api.github.com"
 HEADERS = {"Authorization": f"Bearer {settings.github_token}", "Accept": "application/vnd.github+json"}
 
@@ -41,6 +46,11 @@ COMMIT_MAX_PAGES = 20
 # stale copy of the whole status — a single shared blob updated via
 # read-modify-write couldn't make that guarantee.
 SYNC_STARTED_KEY = "sync:started_at"
+# The exact set of repos *this run* covers, as a JSON array — read back by
+# get_sync_status/cancel_sync instead of re-querying "every tracked repo"
+# at read time, which could have changed (a repo added mid-run) between
+# when the batch was queued and when its status is checked.
+SYNC_REPOS_KEY = "sync:repos"
 SYNC_REPO_KEY_PREFIX = "sync:repo:"
 # Per-repo Celery task id, so a Stop click can revoke exactly the tasks
 # this run queued — not any unrelated sync_one_repo call.
@@ -56,13 +66,17 @@ def _repo_sync_key(full_name: str) -> str:
 def _repo_task_key(full_name: str) -> str:
     return f"{SYNC_TASK_KEY_PREFIX}{full_name}"
 
+def _current_run_repos() -> list[str]:
+    raw = r.get(SYNC_REPOS_KEY)
+    return json.loads(raw) if raw else []
+
 def get_sync_status() -> dict:
     """Read by GET /api/dashboard/sync/status — see its own docstring."""
     started_at = r.get(SYNC_STARTED_KEY)
     if started_at is None:
         return {"state": "idle", "startedAt": None, "repos": {}}
     repos = {}
-    for full_name in TRACKED_REPOS:
+    for full_name in _current_run_repos():
         raw = r.get(_repo_sync_key(full_name))
         repos[full_name] = raw.decode() if raw else "unknown"
     # "cancelled" is terminal, same as "done"/"failed" — only "pending"
@@ -71,8 +85,8 @@ def get_sync_status() -> dict:
     return {"state": state, "startedAt": started_at.decode(), "repos": repos}
 
 def cancel_sync() -> dict:
-    """Called by POST /api/dashboard/sync/stop. Revokes every tracked
-    repo's task that's still "pending" — `terminate=True` SIGTERMs one
+    """Called by POST /api/dashboard/sync/stop. Revokes every repo in the
+    current run that's still "pending" — `terminate=True` SIGTERMs one
     already running (the default prefork worker pool respawns the killed
     child automatically); one still sitting in the queue is simply never
     handed to a worker. Either way the status flips to "cancelled" *before*
@@ -86,7 +100,7 @@ def cancel_sync() -> dict:
     was missed, the same way an interrupted incremental sync always would.
     """
     cancelled = []
-    for full_name in TRACKED_REPOS:
+    for full_name in _current_run_repos():
         raw_status = r.get(_repo_sync_key(full_name))
         if (raw_status.decode() if raw_status else None) != "pending":
             continue
@@ -99,8 +113,23 @@ def cancel_sync() -> dict:
 
 @celery_app.task
 def sync_all_repos():
+    """Syncs every repo currently in the `repos` table — not a fixed list.
+    Adding a repo through the UI (POST /api/dashboard/repos) inserts a row
+    there directly, so it's picked up here on the very next run (whether
+    the 15-minute beat schedule or a manual "Sync now") without needing
+    its own separate code path. TRACKED_REPOS only seeds a database that
+    has no rows at all yet."""
+    db = SessionLocal()
+    try:
+        full_names = [row[0] for row in db.query(Repo.full_name).order_by(Repo.id).all()]
+    finally:
+        db.close()
+    if not full_names:
+        full_names = list(TRACKED_REPOS)
+
     r.set(SYNC_STARTED_KEY, datetime.datetime.utcnow().isoformat() + "Z", ex=SYNC_STATUS_TTL)
-    for full_name in TRACKED_REPOS:
+    r.set(SYNC_REPOS_KEY, json.dumps(full_names), ex=SYNC_STATUS_TTL)
+    for full_name in full_names:
         r.set(_repo_sync_key(full_name), "pending", ex=SYNC_STATUS_TTL)
         result = sync_one_repo.delay(full_name)
         r.set(_repo_task_key(full_name), result.id, ex=SYNC_STATUS_TTL)

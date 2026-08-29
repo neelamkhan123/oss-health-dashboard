@@ -1,4 +1,4 @@
-import { Suspense, useState } from "react";
+import { Suspense, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   StatCard,
@@ -9,28 +9,42 @@ import {
   Badge,
   Button,
   Sparkline,
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+  Input,
+  buttonVariants,
+  toast,
+  useDialog,
   type DataTableColumn,
 } from "@neelamkhan21/ui";
 import { Clock, CircleAlert, Users, TrendingUp, Inbox, Folder, Plus, TriangleAlert } from "lucide-react";
 import { LazyTrendChartCard, TrendChartCardSkeleton } from "../components/LazyTrendChartCard";
 import type { TrendMetric } from "../components/TrendChartCard";
-import { fetchOverview } from "../lib/api";
+import { fetchOverview, addTrackedRepo } from "../lib/api";
 import { repoColor } from "../lib/types";
-import { TRACKED_REPOS } from "../lib/constants";
 import { useFetch } from "../lib/useFetch";
 import { useDateRange } from "../lib/dateRangeContext";
 import { useSyncStatus } from "../lib/syncContext";
+import { useTrackedRepos } from "../lib/trackedReposContext";
 import type { RepoStats } from "../lib/types";
 
 export function Overview() {
   const { days } = useDateRange();
-  const { version } = useSyncStatus();
-  // `days` and `version` in the key, not just the fetcher: useFetch
-  // refetches when its key changes, so the Topbar's date-range picker
-  // driving `days`, or a sync completing and bumping `version`, are both
-  // what actually reload this page's data.
-  const { isLoading, isError, data, retry } = useFetch(`overview:${days}:${version}`, () =>
-    fetchOverview(days),
+  const { version: syncVersion } = useSyncStatus();
+  const { repoNames, version: trackedVersion } = useTrackedRepos();
+  // `days`, `syncVersion`, and `trackedVersion` in the key, not just the
+  // fetcher: useFetch refetches when its key changes, so the Topbar's
+  // date-range picker driving `days`, a sync completing, or a repo being
+  // added are all what actually reload this page's data.
+  const { isLoading, isError, data, retry } = useFetch(
+    `overview:${days}:${syncVersion}:${trackedVersion}`,
+    () => fetchOverview(days),
   );
   const [metric, setMetric] = useState<TrendMetric>("merge");
 
@@ -80,15 +94,28 @@ export function Overview() {
       </div>
 
       <Suspense fallback={<TrendChartCardSkeleton />}>
-        <LazyTrendChartCard repos={repos} metric={metric} onMetricChange={setMetric} />
+        <LazyTrendChartCard
+          repos={repos}
+          trackedRepoNames={repoNames}
+          metric={metric}
+          onMetricChange={setMetric}
+        />
       </Suspense>
 
-      <TrackedRepositories repos={repos} days={days} />
+      <TrackedRepositories repos={repos} days={days} trackedRepoNames={repoNames} />
     </div>
   );
 }
 
-function TrackedRepositories({ repos, days }: { repos: RepoStats[]; days: number }) {
+function TrackedRepositories({
+  repos,
+  days,
+  trackedRepoNames,
+}: {
+  repos: RepoStats[];
+  days: number;
+  trackedRepoNames: string[];
+}) {
   const navigate = useNavigate();
 
   const columns: DataTableColumn<RepoStats>[] = [
@@ -165,7 +192,7 @@ function TrackedRepositories({ repos, days }: { repos: RepoStats[]; days: number
         <Sparkline
           data={repo.spark}
           className="h-8 w-24"
-          style={{ color: repoColor(repo.id, TRACKED_REPOS) }}
+          style={{ color: repoColor(repo.id, trackedRepoNames) }}
         />
       ),
       // A sparkline contributes no text to search, and its raw array would
@@ -195,16 +222,100 @@ function TrackedRepositories({ repos, days }: { repos: RepoStats[]; days: number
             Last {days} days. Click a repository for the full breakdown.
           </p>
         </div>
-        {/* Disabled rather than a no-op: there is no "add a repository"
-         * endpoint, and the tracked list is a hard-coded constant shared
-         * with the backend's sync job (see lib/constants.ts), so a working
-         * button here would need that list to become real data first. */}
-        <Button variant="ghost" size="sm" icon={<Plus size={14} />} disabled>
-          Add repository
-        </Button>
+        <AddRepositoryButton />
       </div>
       <DataTable columns={columns} data={rows} getRowId={(repo) => repo.id} />
     </Card>
+  );
+}
+
+/**
+ * Opens a dialog for tracking a new public GitHub repo — its data starts
+ * syncing as soon as the backend confirms the repo actually exists.
+ * `Dialog` itself is left uncontrolled; only `openCount` is tracked here,
+ * purely to key `AddRepositoryForm` so each open mounts a fresh instance.
+ * That's what resets the form between attempts — the dialog's own
+ * `<dialog>` element persists across opens (shown/hidden, not unmounted),
+ * so without a fresh instance a second open would still be showing the
+ * previous attempt's error or a stale name. A key-driven remount avoids
+ * needing an effect to reset that state by hand.
+ */
+function AddRepositoryButton() {
+  const [openCount, setOpenCount] = useState(0);
+  return (
+    <Dialog onOpenChange={(open) => open && setOpenCount((c) => c + 1)}>
+      <DialogTrigger className={`${buttonVariants({ variant: "ghost", size: "sm" })} gap-1.5`}>
+        <Plus size={14} aria-hidden="true" />
+        Add repository
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Track a new repository</DialogTitle>
+          <DialogDescription>
+            Any public GitHub repository. Its data starts syncing in the background as soon as
+            it's added.
+          </DialogDescription>
+        </DialogHeader>
+        <AddRepositoryForm key={openCount} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddRepositoryForm() {
+  const { onOpenChange } = useDialog();
+  const { refresh } = useTrackedRepos();
+  const [fullName, setFullName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    const trimmed = fullName.trim();
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      await addTrackedRepo(trimmed);
+      toast({
+        title: "Repository added",
+        description: `${trimmed} is now tracked — syncing its data now.`,
+        variant: "success",
+      });
+      refresh();
+      onOpenChange(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't add this repository.");
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <label
+          htmlFor="repo-full-name"
+          className="text-xs font-medium text-slate-700 dark:text-slate-300"
+        >
+          Repository
+        </label>
+        <Input
+          id="repo-full-name"
+          placeholder="owner/repo"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+          autoFocus
+        />
+        {error ? <p className="text-xs text-red-600 dark:text-red-400">{error}</p> : null}
+      </div>
+      <DialogFooter>
+        <DialogClose className={buttonVariants({ variant: "outline", size: "sm" })}>
+          Cancel
+        </DialogClose>
+        <Button type="submit" size="sm" loading={isSubmitting} disabled={!fullName.trim()}>
+          Add
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
 
