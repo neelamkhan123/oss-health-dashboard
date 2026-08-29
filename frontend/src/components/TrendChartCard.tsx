@@ -123,10 +123,20 @@ export function TrendChartCard({
         }
       >
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+          {/* No negative left margin, and no fixed YAxis width: merge/response
+           * time is medians in hours, and an unhealthy repo's monthly median
+           * can run into four digits (a real synced repo has hit 2400+).
+           * A negative margin plus a width picked for 3-digit values pushed
+           * any 4-digit tick's leading character(s) past the SVG's own
+           * x=0 edge, which clips there (SVGs clip like `overflow: hidden`
+           * by default) — "2400" silently rendered as "400". Omitting
+           * `width` lets Recharts measure each tick label and reserve
+           * exactly the space the widest one actually needs, so this
+           * can't reoccur at some larger number either. */}
+          <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} />
-            <YAxis tickLine={false} axisLine={false} fontSize={12} width={44} />
+            <YAxis tickLine={false} axisLine={false} fontSize={12} />
             <RechartsTooltip />
             {repos.map((repo) => (
               <Line

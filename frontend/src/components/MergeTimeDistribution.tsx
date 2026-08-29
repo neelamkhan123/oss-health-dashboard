@@ -54,10 +54,14 @@ export function MergeTimeDistribution({ repo }: { repo: RepoStats }) {
           }
         >
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+            {/* No negative left margin, no fixed YAxis width — see
+             * TrendChartCard's identical comment. A busy repo's PR count in
+             * one bucket can run to 4 digits just as easily as a merge-time
+             * median can; the same clipping bug applies here. */}
+            <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="bucket" tickLine={false} axisLine={false} fontSize={12} />
-              <YAxis tickLine={false} axisLine={false} fontSize={12} width={44} />
+              <YAxis tickLine={false} axisLine={false} fontSize={12} />
               <RechartsTooltip />
               <Bar dataKey="prs" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
             </BarChart>
