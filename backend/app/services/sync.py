@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from app.config import settings
 from app.models.models import Repo, PullRequest, Issue, Contributor, Commit
 from app.services.celery_app import celery_app
-from app.services.cache import cache_get, cache_set, r
+from app.services.cache import cache_get, cache_set, cache_delete_prefix, r
 
 engine = create_engine(settings.database_url)
 SessionLocal = sessionmaker(bind=engine)
@@ -29,10 +29,81 @@ PR_REVIEW_FETCH_CAP = 20
 # repo's first sync so the heatmap isn't empty on day one.
 COMMIT_MAX_PAGES = 20
 
+# ── sync status, for the "Sync now" button to poll ──────────────────────
+#
+# Plain Redis keys, not the cache_get/cache_set JSON-blob helpers above:
+# those are for *cached computed results* with one owner (a single request
+# writes, later requests read); this is *live process state* that multiple
+# concurrent Celery tasks write to as they each finish. One key per repo
+# (rather than one JSON blob covering all of them) is what keeps concurrent
+# completions safe without a lock: two tasks finishing at the same instant
+# each SET their own key, so neither can race the other into overwriting a
+# stale copy of the whole status — a single shared blob updated via
+# read-modify-write couldn't make that guarantee.
+SYNC_STARTED_KEY = "sync:started_at"
+SYNC_REPO_KEY_PREFIX = "sync:repo:"
+# Per-repo Celery task id, so a Stop click can revoke exactly the tasks
+# this run queued — not any unrelated sync_one_repo call.
+SYNC_TASK_KEY_PREFIX = "sync:task:"
+# Long enough to cover a slow multi-repo sync (a few minutes per repo, per
+# the docstring below); short enough that a crashed worker doesn't leave
+# the status endpoint reporting "running" forever.
+SYNC_STATUS_TTL = 3600
+
+def _repo_sync_key(full_name: str) -> str:
+    return f"{SYNC_REPO_KEY_PREFIX}{full_name}"
+
+def _repo_task_key(full_name: str) -> str:
+    return f"{SYNC_TASK_KEY_PREFIX}{full_name}"
+
+def get_sync_status() -> dict:
+    """Read by GET /api/dashboard/sync/status — see its own docstring."""
+    started_at = r.get(SYNC_STARTED_KEY)
+    if started_at is None:
+        return {"state": "idle", "startedAt": None, "repos": {}}
+    repos = {}
+    for full_name in TRACKED_REPOS:
+        raw = r.get(_repo_sync_key(full_name))
+        repos[full_name] = raw.decode() if raw else "unknown"
+    # "cancelled" is terminal, same as "done"/"failed" — only "pending"
+    # means the batch is still running.
+    state = "running" if any(status == "pending" for status in repos.values()) else "complete"
+    return {"state": state, "startedAt": started_at.decode(), "repos": repos}
+
+def cancel_sync() -> dict:
+    """Called by POST /api/dashboard/sync/stop. Revokes every tracked
+    repo's task that's still "pending" — `terminate=True` SIGTERMs one
+    already running (the default prefork worker pool respawns the killed
+    child automatically); one still sitting in the queue is simply never
+    handed to a worker. Either way the status flips to "cancelled" *before*
+    the revoke call goes out, not after, so the status endpoint is correct
+    immediately rather than racing the signal.
+
+    A task killed mid-write can leave a repo's sync partially applied —
+    e.g. contributors updated but PRs not yet — since sync_one_repo commits
+    incrementally per section rather than in one transaction. That's an
+    accepted tradeoff of an abrupt stop: the next sync fills in whatever
+    was missed, the same way an interrupted incremental sync always would.
+    """
+    cancelled = []
+    for full_name in TRACKED_REPOS:
+        raw_status = r.get(_repo_sync_key(full_name))
+        if (raw_status.decode() if raw_status else None) != "pending":
+            continue
+        r.set(_repo_sync_key(full_name), "cancelled", ex=SYNC_STATUS_TTL)
+        raw_task_id = r.get(_repo_task_key(full_name))
+        if raw_task_id:
+            celery_app.control.revoke(raw_task_id.decode(), terminate=True, signal="SIGTERM")
+        cancelled.append(full_name)
+    return {"cancelled": cancelled}
+
 @celery_app.task
 def sync_all_repos():
+    r.set(SYNC_STARTED_KEY, datetime.datetime.utcnow().isoformat() + "Z", ex=SYNC_STATUS_TTL)
     for full_name in TRACKED_REPOS:
-        sync_one_repo.delay(full_name)
+        r.set(_repo_sync_key(full_name), "pending", ex=SYNC_STATUS_TTL)
+        result = sync_one_repo.delay(full_name)
+        r.set(_repo_task_key(full_name), result.id, ex=SYNC_STATUS_TTL)
 
 @celery_app.task
 def sync_one_repo(full_name: str):
@@ -64,7 +135,17 @@ def sync_one_repo(full_name: str):
         repo.last_synced_at = datetime.datetime.utcnow()
         db.commit()
         r.delete(f"repo_stats:{repo.id}")
-        r.delete(f"repo_full:{repo.id}")
+        # /full and /overview are cached per `days` window now (the Topbar's
+        # date-range picker), so one repo's sync can't name every variant by
+        # exact key — and /overview's cache covers every tracked repo, so
+        # any one of them syncing invalidates it.
+        cache_delete_prefix(f"repo_full:{repo.id}:")
+        cache_delete_prefix("overview:")
+    except Exception:
+        r.set(_repo_sync_key(full_name), "failed", ex=SYNC_STATUS_TTL)
+        raise
+    else:
+        r.set(_repo_sync_key(full_name), "done", ex=SYNC_STATUS_TTL)
     finally:
         db.close()
 

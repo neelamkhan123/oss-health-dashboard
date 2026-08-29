@@ -21,6 +21,8 @@ import { fetchOverview } from "../lib/api";
 import { repoColor } from "../lib/types";
 import { TRACKED_REPOS } from "../lib/constants";
 import { useFetch } from "../lib/useFetch";
+import { useDateRange } from "../lib/dateRangeContext";
+import { useSyncStatus } from "../lib/syncContext";
 import type { RepoStats, MetricValue } from "../lib/types";
 
 /**
@@ -30,18 +32,27 @@ import type { RepoStats, MetricValue } from "../lib/types";
  * news, a higher merge rate is good news, and a table that marked the
  * maximum in every row would call the slowest repo the winner half the
  * time. It's the same distinction StatCard draws with `deltaDirection`.
+ *
+ * A function of `days`, not a static list: the "Contributors" row's label
+ * names the window it's counted over, same as Overview's StatCard.
  */
-const COMPARE_ROWS: { label: string; read: (repo: RepoStats) => MetricValue; lower: boolean }[] = [
-  { label: "Avg. time to merge", read: (r) => r.merge, lower: true },
-  { label: "Median first response", read: (r) => r.response, lower: true },
-  { label: "Merge rate", read: (r) => r.mergeRate, lower: false },
-  { label: "Contributors, 90 days", read: (r) => r.contrib, lower: false },
-  { label: "Open issues", read: (r) => r.issues, lower: true },
-  { label: "Commits per week", read: (r) => r.commits, lower: false },
-];
+function compareRows(days: number): { label: string; read: (repo: RepoStats) => MetricValue; lower: boolean }[] {
+  return [
+    { label: "Avg. time to merge", read: (r) => r.merge, lower: true },
+    { label: "Median first response", read: (r) => r.response, lower: true },
+    { label: "Merge rate", read: (r) => r.mergeRate, lower: false },
+    { label: `Contributors, ${days} days`, read: (r) => r.contrib, lower: false },
+    { label: "Open issues", read: (r) => r.issues, lower: true },
+    { label: "Commits per week", read: (r) => r.commits, lower: false },
+  ];
+}
 
 export function Compare() {
-  const { isLoading, isError, data, retry } = useFetch("compare-overview", fetchOverview);
+  const { days } = useDateRange();
+  const { version } = useSyncStatus();
+  const { isLoading, isError, data, retry } = useFetch(`compare-overview:${days}:${version}`, () =>
+    fetchOverview(days),
+  );
   const [selectedIds, setSelectedIds] = useState<string[]>(TRACKED_REPOS);
   const [metric, setMetric] = useState<TrendMetric>("merge");
 
@@ -154,7 +165,7 @@ export function Compare() {
             ))}
           </div>
 
-          <CoreMetrics selected={selected} />
+          <CoreMetrics selected={selected} days={days} />
 
           <Suspense fallback={<TrendChartCardSkeleton />}>
             <LazyTrendChartCard
@@ -195,7 +206,8 @@ function CompareSkeleton() {
  * arrangement where "who's fastest" is a glance rather than a search — and
  * it's what makes marking the best value per row possible at all.
  */
-function CoreMetrics({ selected }: { selected: RepoStats[] }) {
+function CoreMetrics({ selected, days }: { selected: RepoStats[]; days: number }) {
+  const rows = compareRows(days);
   return (
     <Card className="p-6">
       <div className="mb-3 flex flex-col gap-1.5">
@@ -223,7 +235,7 @@ function CoreMetrics({ selected }: { selected: RepoStats[] }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {COMPARE_ROWS.map((row) => {
+            {rows.map((row) => {
               const values = selected
                 .map((repo) => row.read(repo).v)
                 .filter((v): v is number => v !== null);
