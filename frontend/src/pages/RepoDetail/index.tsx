@@ -1,6 +1,6 @@
 import { useParams } from "react-router-dom";
 import { Badge, Button, EmptyState, Skeleton } from "@neelamkhan21/ui";
-import { Star, ExternalLink, TriangleAlert } from "lucide-react";
+import { ExternalLink, TriangleAlert } from "lucide-react";
 import { PageHeader } from "../../layout/PageHeader";
 import { CommitHeatmap } from "../../components/CommitHeatmap";
 import { MergeTimeDistribution } from "../../components/MergeTimeDistribution";
@@ -10,6 +10,7 @@ import { useDateRange } from "../../lib/dateRangeContext";
 import { useSyncStatus } from "../../lib/syncContext";
 import { RepoStatsRow } from "./RepoStatsRow";
 import { ContributorLeaderboard } from "./ContributorLeaderboard";
+import { WatchButton } from "./WatchButton";
 
 export function RepoDetail() {
   const { repoId } = useParams();
@@ -61,9 +62,7 @@ export function RepoDetail() {
         }
         actions={
           <>
-            <Button variant="outline" size="sm" icon={<Star size={14} />}>
-              Watch
-            </Button>
+            <WatchButton repoId={repo.id} />
             <Button
               variant="outline"
               size="sm"
@@ -84,7 +83,11 @@ export function RepoDetail() {
 
       <MergeTimeDistribution repo={repo} />
 
-      <ContributorLeaderboard repoId={repo.id} initialTop={repo.top} />
+      <ContributorLeaderboard
+        repoId={repo.id}
+        initialTop={repo.top}
+        topThisMonth={repo.topThisMonth}
+      />
     </div>
   );
 }

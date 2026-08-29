@@ -54,9 +54,14 @@ const contributorColumns: DataTableColumn<ContributorRow>[] = [
 export function ContributorLeaderboard({
   repoId,
   initialTop,
+  topThisMonth,
 }: {
   repoId: string;
   initialTop: ContributorRow[];
+  /** Top 5 by commits in the trailing 30 days — a different ranking from
+   *  `initialTop`/the sortable table below (both all-time), not a slice
+   *  of either. See the backend's own note on why these can't share data. */
+  topThisMonth: { login: string; commits: number }[];
 }) {
   const [fetched, setFetched] = useState<{ repoId: string; rows: ContributorRow[] } | null>(null);
 
@@ -89,8 +94,8 @@ export function ContributorLeaderboard({
           <span className="text-xs text-slate-500 dark:text-slate-400">
             Top this month
           </span>
-          <AvatarGroup label="Top contributors" size="sm" max={5}>
-            {sorted.slice(0, 5).map((c) => (
+          <AvatarGroup label="Top contributors this month" size="sm" max={5}>
+            {topThisMonth.map((c) => (
               <Avatar key={c.login}>
                 <AvatarFallback>{initials(c.login)}</AvatarFallback>
               </Avatar>
