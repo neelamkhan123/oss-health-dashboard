@@ -22,7 +22,15 @@ import {
   TabsList,
   TabsTrigger,
 } from "@neelamkhan21/ui";
-import { LayoutDashboard, Activity, Folder, LogOut } from "lucide-react";
+import {
+  LayoutDashboard,
+  Activity,
+  Folder,
+  LogOut,
+  Sun,
+  MonitorCog,
+  Moon,
+} from "lucide-react";
 import { useTrackedRepos } from "../../lib/trackedReposContext";
 import { useTheme } from "../../lib/themeContext";
 import type { Theme } from "../../lib/types";
@@ -216,7 +224,7 @@ export function AppShell() {
           <DropdownMenu>
             <DropdownMenuTrigger
               side="top"
-              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+              className="flex items-center gap-2.5 rounded-full p-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 transition-all ease-in-out duration-200 w-fit"
             >
               <Avatar size="sm">
                 {/* Mounted unconditionally when there's a src — AvatarImage tracks
@@ -245,9 +253,24 @@ export function AppShell() {
                   onValueChange={(value) => setTheme(value as Theme)}
                 >
                   <TabsList className="w-full">
-                    <TabsTrigger value="light">Light</TabsTrigger>
-                    <TabsTrigger value="dark">Dark</TabsTrigger>
-                    <TabsTrigger value="system">System</TabsTrigger>
+                    <TabsTrigger
+                      value="light"
+                      className="flex items-center justify-center"
+                    >
+                      <Sun size={14} />
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="dark"
+                      className="flex items-center justify-center"
+                    >
+                      <Moon size={14} />
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="system"
+                      className="flex items-center justify-center"
+                    >
+                      <MonitorCog size={14} />
+                    </TabsTrigger>
                   </TabsList>
                 </Tabs>
               </div>
