@@ -18,9 +18,14 @@ import {
   Avatar,
   AvatarFallback,
   AvatarImage,
+  Tabs,
+  TabsList,
+  TabsTrigger,
 } from "@neelamkhan21/ui";
 import { LayoutDashboard, Activity, Folder, LogOut } from "lucide-react";
 import { useTrackedRepos } from "../../lib/trackedReposContext";
+import { useTheme } from "../../lib/themeContext";
+import type { Theme } from "../../lib/types";
 import { crumbsFor } from "./crumbs";
 import { GroupLabel } from "./GroupLabel";
 import { SidebarNavButton } from "./SidebarNavButton";
@@ -61,6 +66,7 @@ export function AppShell() {
 
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { theme, setTheme } = useTheme();
 
   const handleSignOut = async () => {
     await logout();
@@ -208,7 +214,10 @@ export function AppShell() {
 
         <SidebarFooter>
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800">
+            <DropdownMenuTrigger
+              side="top"
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
               <Avatar size="sm">
                 {/* Mounted unconditionally when there's a src — AvatarImage tracks
                  * its own load state, and AvatarFallback gives way once it
@@ -218,14 +227,30 @@ export function AppShell() {
                 ) : null}
                 <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
-              <span className="min-w-0 flex-1 truncate text-sm text-slate-700 dark:text-slate-300">
-                {user?.name ?? user?.email}
-              </span>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
               {/* The email even when the name is shown above — it's how you tell
                * which of two accounts you're actually in. */}
               <DropdownMenuLabel>{user?.email}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Theme</DropdownMenuLabel>
+              {/* A segmented control, not three DropdownMenuItems — the
+               * three options are mutually exclusive states of one
+               * setting (exactly what Tabs already models), not separate
+               * actions, and picking one shouldn't close this menu the
+               * way choosing "Sign out" does. */}
+              <div className="px-2 pb-1.5">
+                <Tabs
+                  value={theme}
+                  onValueChange={(value) => setTheme(value as Theme)}
+                >
+                  <TabsList className="w-full">
+                    <TabsTrigger value="light">Light</TabsTrigger>
+                    <TabsTrigger value="dark">Dark</TabsTrigger>
+                    <TabsTrigger value="system">System</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleSignOut}>
                 <LogOut size={14} /> Sign out
