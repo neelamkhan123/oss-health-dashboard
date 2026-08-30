@@ -264,6 +264,14 @@ def _sync_repo_meta(client, db, repo):
     repo.language = data.get("language")
     license_info = data.get("license") or {}
     repo.license = license_info.get("spdx_id") or license_info.get("name")
+
+    # A separate endpoint from the repo fetch above: `language` there is
+    # linguist's single guess at the repo's primary language, while this
+    # returns bytes of code per language across the whole tree — what
+    # GitHub's own "Languages" bar on the repo page is built from.
+    repo.languages = _cached_github_get(
+        client, f"{GITHUB_API}/repos/{owner}/{name}/languages", {}
+    )
     db.commit()
 
 def _sync_pull_requests(client, db, repo, since):

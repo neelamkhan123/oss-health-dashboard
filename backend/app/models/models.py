@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, Index, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, declarative_base
 import datetime
 
@@ -73,6 +74,14 @@ class Repo(Base):
     forks = Column(Integer, nullable=True)
     language = Column(String, nullable=True)
     license = Column(String, nullable=True)
+
+    # From GET /repos/{owner}/{name}/languages — bytes of code per language,
+    # e.g. {"JavaScript": 5200000, "Rust": 2700000}. A second call from
+    # `language` above: that field is linguist's single guess at the repo's
+    # *primary* language, not the full breakdown GitHub's own UI shows.
+    # Keyed by GitHub's own language names, so the frontend's color map
+    # (frontend/src/lib/languageColors.ts) can match them directly.
+    languages = Column(JSONB, nullable=True)
 
     pull_requests = relationship("PullRequest", back_populates="repo")
     issues = relationship("Issue", back_populates="repo")

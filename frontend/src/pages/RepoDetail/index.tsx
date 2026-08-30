@@ -3,6 +3,7 @@ import { Badge, Button, EmptyState, Skeleton } from "@neelamkhan21/ui";
 import { ExternalLink, TriangleAlert } from "lucide-react";
 import { PageHeader } from "../../layout/PageHeader";
 import { CommitHeatmap } from "../../components/CommitHeatmap";
+import { LanguageChart } from "../../components/LanguageChart";
 import { MergeTimeDistribution } from "../../components/MergeTimeDistribution";
 import { fetchRepoFull } from "../../lib/api";
 import { useFetch } from "../../lib/useFetch";
@@ -79,7 +80,22 @@ export function RepoDetail() {
 
       <RepoStatsRow repo={repo} />
 
-      <CommitHeatmap repo={repo} />
+      {/* lg:flex-row once there's room for both side by side; stacked below
+       * that. 2:1 rather than an even split because the heatmap needs ~780px
+       * to show all 53 weeks and a full year of month labels — anything
+       * narrower and the last months scroll out of view — while the pie and
+       * its legend are comfortable in a third of the row.
+       * min-w-0 on both: without it, a flex item's default min-width is its
+       * content size, which would stop CommitHeatmap's own overflow-x-auto
+       * from ever kicking in and blow out the row instead of scrolling. */}
+      <div className="flex flex-col gap-6 lg:flex-row">
+        <div className="min-w-0 lg:flex-2">
+          <CommitHeatmap repo={repo} />
+        </div>
+        <div className="min-w-0 lg:flex-1">
+          <LanguageChart repo={repo} />
+        </div>
+      </div>
 
       <MergeTimeDistribution repo={repo} />
 

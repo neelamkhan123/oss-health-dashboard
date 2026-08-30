@@ -49,7 +49,11 @@ export function CommitHeatmap({ repo }: { repo: RepoStats }) {
   const months = trailingMonths();
 
   return (
-    <Card className="p-6">
+    // h-full so the card fills its column when it sits in a row beside a
+    // taller one (RepoDetail pairs it with LanguageChart) — without it the
+    // card stops at its own content height and the page background shows
+    // through under it.
+    <Card className="h-full p-6">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1.5">
           <h2 className="m-0 text-sm font-semibold text-slate-950 dark:text-white">

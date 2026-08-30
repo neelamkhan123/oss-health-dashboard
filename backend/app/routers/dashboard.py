@@ -59,6 +59,21 @@ def _format_compact(n) -> str:
         return f"{n / 1_000:.1f}k"
     return str(n)
 
+def _language_breakdown(languages: dict | None) -> list[dict]:
+    """{"JavaScript": 5200000, "Rust": 2700000, ...} -> the sorted
+    [{"name", "bytes", "pct"}, ...] list the frontend's language chart and
+    legend render directly (see lib/languageColors.ts for the name -> swatch
+    lookup). `languages` is None for a repo that predates this column or
+    hasn't synced since it was added — an empty list here, not an error, and
+    the frontend falls back to the single `lang` badge in that case."""
+    total = sum(languages.values()) if languages else 0
+    if not total:
+        return []
+    return [
+        {"name": name, "bytes": count, "pct": round(count / total * 100, 1)}
+        for name, count in sorted(languages.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+
 def _format_duration(hours: float) -> str:
     """5.1 -> '5.1h'; 219.6 -> '9.2d'. Hours in, the unit that reads best
     out — matches the prototype's own '11h' / '2.1d' convention."""
@@ -361,6 +376,7 @@ def compute_repo_full(db: Session, repo: Repo, days: int = 90) -> dict:
     return {
         "id": repo.full_name,
         "lang": repo.language or "—",
+        "languages": _language_breakdown(repo.languages),
         "license": repo.license or "—",
         "stars": _format_compact(repo.stars),
         "forks": _format_compact(repo.forks),
