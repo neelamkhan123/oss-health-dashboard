@@ -11,9 +11,10 @@ from app.models.models import User
 from app.services.auth import (
     SESSION_COOKIE,
     clear_session_cookie,
-    create_access_token,
+    create_session,
     get_current_user,
     hash_password,
+    revoke_session,
     set_session_cookie,
     verify_password,
 )
@@ -84,7 +85,7 @@ def signup(req: SignupRequest, response: Response, db: Session = Depends(get_db)
     # Declaring `response: Response` lets FastAPI merge headers set here into
     # the response it builds around the returned dict — so the new account is
     # signed in immediately, with no second round trip to /login.
-    set_session_cookie(response, create_access_token(user.id))
+    set_session_cookie(response, create_session(user.id))
     return serialize(user)
 
 
@@ -109,12 +110,19 @@ def login(req: LoginRequest, request: Request, response: Response, db: Session =
         raise HTTPException(401, "Incorrect email or password")
 
     clear_login_attempts(req.email, ip)
-    set_session_cookie(response, create_access_token(user.id))
+    set_session_cookie(response, create_session(user.id))
     return serialize(user)
 
 
 @router.post("/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response):
+    # Revoke server-side first, not just clear the cookie: the point of a
+    # revocable session is that logout ends it everywhere, not just in the
+    # browser that clicked the button — a copy of the cookie stolen before
+    # this request would otherwise keep working for the rest of its week.
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        revoke_session(token)
     clear_session_cookie(response)
     return {"ok": True}
 
@@ -195,6 +203,6 @@ async def oauth_callback(
         return RedirectResponse(f"{login_page}?error=oauth_failed", status_code=302)
 
     response = RedirectResponse(settings.frontend_url, status_code=302)
-    set_session_cookie(response, create_access_token(user.id))
+    set_session_cookie(response, create_session(user.id))
     response.delete_cookie(OAUTH_STATE_COOKIE, path="/")
     return response

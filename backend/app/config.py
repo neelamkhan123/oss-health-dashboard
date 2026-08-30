@@ -15,8 +15,6 @@ class Settings(BaseSettings):
     # The sync worker's own PAT — unrelated to github_client_id/secret below,
     # which are how *users* authenticate to this app.
     github_token: str
-    jwt_secret: str
-    jwt_algorithm: str = "HS256"
 
     # Empty defaults rather than required fields: the app should still boot
     # for someone who's only set up email/password. The login endpoint checks
