@@ -17,6 +17,17 @@ services:
     ports:
       - "6379:6379"
 
+  # A browser-based Postgres client — http://localhost:8080, server
+  # "postgres" (the service name above, not localhost), then the same
+  # POSTGRES_USER/PASSWORD/DB as everything else here. Dev convenience
+  # only; nothing else in this stack talks to it.
+  adminer:
+    image: adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
   api:
     build: ./backend
     env_file: .env
