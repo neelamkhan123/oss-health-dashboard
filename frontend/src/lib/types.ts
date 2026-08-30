@@ -174,4 +174,11 @@ export type Theme = "light" | "dark" | "system";
  *  own note for what it covers and why it isn't the chart palette). Lives
  *  here with `Theme` for the same reason; the hues themselves are in
  *  lib/accents.ts, which is the list this union has to stay in step with. */
-export type Accent = "blue" | "violet" | "teal" | "emerald" | "amber" | "rose";
+export type Accent =
+  | "blue"
+  | "violet"
+  | "teal"
+  | "emerald"
+  | "amber"
+  | "rose"
+  | "pink";

@@ -18,6 +18,7 @@ export const ACCENTS: { value: Accent; label: string; swatch: string }[] = [
   { value: "emerald", label: "Emerald", swatch: "#10b981" },
   { value: "amber", label: "Amber", swatch: "#f59e0b" },
   { value: "rose", label: "Rose", swatch: "#f43f5e" },
+  { value: "pink", label: "Pink", swatch: "#ec4899" },
 ];
 
 export const DEFAULT_ACCENT: Accent = "blue";

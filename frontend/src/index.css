@@ -172,6 +172,13 @@
 :root.dark[data-accent="rose"] {
   --accent: #f43f5e;
 }
+:root[data-accent="pink"] {
+  --accent: #db2777;
+  --accent-soft: #f472b6;
+}
+:root.dark[data-accent="pink"] {
+  --accent: #ec4899;
+}
 
 html,
 body,
