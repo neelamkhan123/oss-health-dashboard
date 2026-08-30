@@ -5,6 +5,21 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OSS Health Dashboard</title>
+    <script>
+      // Applies the saved theme before the app's first paint, so a
+      // dark-mode visitor never sees a flash of the light shell while
+      // React boots and ThemeProvider's own effect catches up (see
+      // src/lib/themeContext.tsx, which owns this logic from then on —
+      // this copy exists only because that context isn't loaded yet).
+      (function () {
+        var stored = localStorage.getItem("theme");
+        var isDark =
+          stored === "dark" ||
+          (stored !== "light" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", isDark);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

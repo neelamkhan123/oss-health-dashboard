@@ -15,6 +15,7 @@ import {
 } from "@neelamkhan21/ui";
 import { Eye, EyeOff } from "lucide-react";
 import { useAuth } from "../../lib/authContext";
+import { ThemeToggle } from "../../layout/AppShell/ThemeToggle";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -174,7 +175,10 @@ export function Login() {
   );
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-slate-50 p-6 dark:bg-slate-900">
+    <div className="relative flex min-h-dvh items-center justify-center bg-slate-50 p-6 dark:bg-slate-900">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>OSS Health</CardTitle>

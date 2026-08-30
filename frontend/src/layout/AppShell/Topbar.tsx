@@ -17,6 +17,7 @@ import { Fragment, useEffect, type MouseEvent } from "react";
 import { useDateRange } from "../../lib/dateRangeContext";
 import { useSyncStatus } from "../../lib/syncContext";
 import type { Crumb } from "./crumbs";
+import { ThemeToggle } from "./ThemeToggle";
 
 /**
  * Writes the selected range the way the preset list does ("Last 90 days")
@@ -192,6 +193,7 @@ export function Topbar({ crumbs }: { crumbs: Crumb[] }) {
       >
         {isSyncing ? "Syncing…" : "Sync now"}
       </Button>
+      <ThemeToggle />
     </header>
   );
 }

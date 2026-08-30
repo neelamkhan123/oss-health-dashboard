@@ -146,3 +146,9 @@ export function repoColor(repoId: string, trackedRepos: string[]): string {
 export function repoShort(repoId: string): string {
   return repoId.split("/")[1] ?? repoId;
 }
+
+/** The user's color-scheme choice — "system" meaning "no preference of its
+ *  own, follow the OS". See lib/themeContext.tsx, which owns the state
+ *  itself; the type lives here with the app's other cross-file shapes
+ *  (same as `CurrentUser` above), since ThemeToggle needs it too. */
+export type Theme = "light" | "dark" | "system";
