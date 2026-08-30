@@ -4,18 +4,21 @@ import datetime
 import json
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 from app.config import settings
-from app.models.models import Repo, PullRequest, Issue, Contributor, Commit
+from app.models.models import Repo, TrackedRepo, PullRequest, Issue, Contributor, Commit
 from app.services.celery_app import celery_app
 from app.services.cache import cache_get, cache_set, cache_delete_prefix, r
 
 engine = create_engine(settings.database_url)
 SessionLocal = sessionmaker(bind=engine)
 
-# Bootstrap seed only, for a brand-new database with no Repo rows yet — see
-# sync_all_repos below. Once anything exists in the repos table (whether
-# from this seed or "Add repository" in the UI), that table is the actual
-# source of truth for what's tracked; this list is never consulted again.
+# Two jobs: the bootstrap seed for a brand-new database with no Repo rows at
+# all yet (see sync_all_repos below — once anything exists in the repos
+# table, whether from this seed or "Add repository" in the UI, that table
+# is the source of truth for what's *synced*), and the starter set every
+# new account gets tracked on automatically (see track_default_repos below)
+# so a fresh signup lands on a populated Overview instead of an empty one.
 TRACKED_REPOS = ["facebook/react", "vuejs/core", "microsoft/vscode"]
 GITHUB_API = "https://api.github.com"
 HEADERS = {"Authorization": f"Bearer {settings.github_token}", "Accept": "application/vnd.github+json"}
@@ -110,6 +113,32 @@ def cancel_sync() -> dict:
             celery_app.control.revoke(raw_task_id.decode(), terminate=True, signal="SIGTERM")
         cancelled.append(full_name)
     return {"cancelled": cancelled}
+
+def track_default_repos(db: Session, user_id: int) -> None:
+    """Called once, right after a new User row is created (routers/auth.py's
+    signup, and services/oauth.py's upsert_oauth_user for a first-time OAuth
+    signup) — links the new account to the same TRACKED_REPOS starter set a
+    brand-new database seeds itself with, so a fresh signup lands on a
+    populated Overview instead of OverviewEmpty's empty state.
+
+    Reuses whichever Repo rows already exist — the common case once anyone,
+    ever, has tracked one of these — rather than re-verifying them against
+    GitHub. For one truly nobody has (a brand-new deployment, first user
+    ever), creates a bare row exactly the way sync_one_repo itself does for
+    a repo it's never seen, and queues that same task to fill it in; no
+    special-cased shortcut that skips the normal sync pipeline.
+
+    Doesn't commit — part of the caller's own transaction, so a failure
+    partway through (a repo insert, say) rolls the new user back too rather
+    than leaving a half-onboarded account."""
+    for full_name in TRACKED_REPOS:
+        repo = db.query(Repo).filter_by(full_name=full_name).first()
+        if repo is None:
+            repo = Repo(full_name=full_name)
+            db.add(repo)
+            db.flush()  # assigns repo.id without ending the transaction
+            sync_one_repo.delay(full_name)
+        db.add(TrackedRepo(user_id=user_id, repo_id=repo.id))
 
 @celery_app.task
 def sync_all_repos():

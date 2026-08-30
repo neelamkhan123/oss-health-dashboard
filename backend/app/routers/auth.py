@@ -31,6 +31,7 @@ from app.services.rate_limit import (
     clear_login_attempts,
     record_login_failure,
 )
+from app.services.sync import track_default_repos
 
 router = APIRouter()
 
@@ -79,6 +80,8 @@ def signup(req: SignupRequest, response: Response, db: Session = Depends(get_db)
 
     user = User(email=req.email, hashed_password=hash_password(req.password))
     db.add(user)
+    db.flush()  # assigns user.id without ending the transaction
+    track_default_repos(db, user.id)
     db.commit()
     db.refresh(user)
 

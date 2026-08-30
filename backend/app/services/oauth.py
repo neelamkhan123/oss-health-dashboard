@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.models import OAuthAccount, User
+from app.services.sync import track_default_repos
 
 
 @dataclass(frozen=True)
@@ -189,6 +190,11 @@ def upsert_oauth_user(db: Session, oauth_user: OAuthUser) -> User:
         )
         db.add(user)
         db.flush()  # assigns user.id without ending the transaction
+        # Only for a genuinely new account — `existing` above means this
+        # provider is linking onto one that was already here, which may
+        # already have its own tracked repos (or a deliberately empty
+        # dashboard) that this shouldn't overwrite.
+        track_default_repos(db, user.id)
 
     db.add(OAuthAccount(
         user_id=user.id,
