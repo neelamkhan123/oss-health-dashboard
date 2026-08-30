@@ -20,17 +20,18 @@ import { trailingMonths, repoColor, type RepoStats } from "../lib/types";
 /** Which of the two per-repo time series the trend chart is showing. */
 export type TrendMetric = "merge" | "issue";
 
-const METRIC_COPY: Record<TrendMetric, { title: string; description: string }> = {
-  merge: {
-    title: "Time to merge",
-    description: "Median hours from pull request open to merge, by month.",
-  },
-  issue: {
-    title: "Issue first response",
-    description:
-      "Median hours from issue open to first maintainer reply, by month.",
-  },
-};
+const METRIC_COPY: Record<TrendMetric, { title: string; description: string }> =
+  {
+    merge: {
+      title: "Time to merge",
+      description: "Median hours from pull request open to merge, by month.",
+    },
+    issue: {
+      title: "Issue first response",
+      description:
+        "Median hours from issue open to first maintainer reply, by month.",
+    },
+  };
 
 type TrendRow = Record<string, string | number>;
 
@@ -78,14 +79,15 @@ export function TrendChartCard({
   const data: TrendRow[] = months.map((month, i) => {
     const row: TrendRow = { month };
     repos.forEach((repo) => {
-      row[repo.id] = metric === "merge" ? repo.trendMerge[i] : repo.trendIssue[i];
+      row[repo.id] =
+        metric === "merge" ? repo.trendMerge[i] : repo.trendIssue[i];
     });
     return row;
   });
 
   return (
     <div className="flex flex-col gap-3.5">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center items-start justify-between gap-4">
         <div className="flex flex-col gap-1.5">
           <h2 className="m-0 text-sm font-semibold text-slate-950 dark:text-white">
             {copy.title}
@@ -122,7 +124,10 @@ export function TrendChartCard({
           legend={
             <ChartLegend>
               {repos.map((repo) => (
-                <ChartLegendItem key={repo.id} color={repoColor(repo.id, trackedRepoNames)}>
+                <ChartLegendItem
+                  key={repo.id}
+                  color={repoColor(repo.id, trackedRepoNames)}
+                >
                   {repo.id}
                 </ChartLegendItem>
               ))}
@@ -153,9 +158,17 @@ export function TrendChartCard({
              * `width` lets Recharts measure each tick label and reserve
              * exactly the space the widest one actually needs, so this
              * can't reoccur at some larger number either. */}
-            <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+            <LineChart
+              data={data}
+              margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+            >
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} />
+              <XAxis
+                dataKey="month"
+                tickLine={false}
+                axisLine={false}
+                fontSize={12}
+              />
               <YAxis tickLine={false} axisLine={false} fontSize={12} />
               <RechartsTooltip />
               {repos.map((repo) => (

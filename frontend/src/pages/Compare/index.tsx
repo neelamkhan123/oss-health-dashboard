@@ -1,7 +1,10 @@
 import { Suspense, useState, type CSSProperties } from "react";
 import { Toggle, EmptyState, StatCard, Button } from "@neelamkhan21/ui";
 import { Layers, TriangleAlert } from "lucide-react";
-import { LazyTrendChartCard, TrendChartCardSkeleton } from "../../components/LazyTrendChartCard";
+import {
+  LazyTrendChartCard,
+  TrendChartCardSkeleton,
+} from "../../components/LazyTrendChartCard";
 import type { TrendMetric } from "../../components/TrendChartCard";
 import { fetchOverview } from "../../lib/api";
 import { repoColor } from "../../lib/types";
@@ -42,14 +45,14 @@ export function Compare() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <h1 className="m-0 text-2xl leading-tight font-semibold tracking-tight text-slate-950 dark:text-white">
             Compare repositories
           </h1>
           <p className="m-0 text-xs text-slate-500 dark:text-slate-400">
-            Same window, same definitions. Merge time is measured from first commit
-            push to merge.
+            Same window, same definitions. Merge time is measured from first
+            commit push to merge.
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
@@ -61,7 +64,9 @@ export function Compare() {
               pressed={selectedIds.includes(repoId)}
               onPressedChange={(pressed: boolean) =>
                 setSelectedIds((prev) =>
-                  pressed ? [...prev, repoId] : prev.filter((id) => id !== repoId),
+                  pressed
+                    ? [...prev, repoId]
+                    : prev.filter((id) => id !== repoId),
                 )
               }
             >
@@ -118,7 +123,11 @@ export function Compare() {
                 // gives it a tone class; a descendant selector out-specifies
                 // that without having to fight the merge order. These cards
                 // have no `icon`, so the sparkline is the only svg matched.
-                style={{ "--repo-color": repoColor(repo.id, repoNames) } as CSSProperties}
+                style={
+                  {
+                    "--repo-color": repoColor(repo.id, repoNames),
+                  } as CSSProperties
+                }
                 className="[&_svg]:text-(--repo-color)"
               >
                 {/* The caption goes in `children`, not `deltaLabel`:
@@ -129,7 +138,9 @@ export function Compare() {
                  * render a "no change" indicator, which is a claim about
                  * the data rather than a caption. */}
                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                  {metric === "merge" ? "avg. time to merge" : "median first response"}
+                  {metric === "merge"
+                    ? "avg. time to merge"
+                    : "median first response"}
                 </span>
               </StatCard>
             ))}

@@ -28,9 +28,13 @@ export function RepoDetail() {
   // it). Undefined for a repo that isn't tracked — pin and remove have
   // nothing to act on there, so the menu simply isn't offered.
   const tracked = sidebarRepos.find((r) => r.fullName === repoId);
-  const { isLoading, isError, data: repo, retry } = useFetch(
-    `${repoId ?? ""}:${days}:${version}`,
-    () => fetchRepoFull(repoId!, days),
+  const {
+    isLoading,
+    isError,
+    data: repo,
+    retry,
+  } = useFetch(`${repoId ?? ""}:${days}:${version}`, () =>
+    fetchRepoFull(repoId!, days),
   );
 
   if (isLoading) {
@@ -88,7 +92,11 @@ export function RepoDetail() {
               size="sm"
               icon={<ExternalLink size={14} />}
               onClick={() =>
-                window.open(`https://github.com/${repo.id}`, "_blank", "noopener")
+                window.open(
+                  `https://github.com/${repo.id}`,
+                  "_blank",
+                  "noopener",
+                )
               }
             >
               Open on GitHub
@@ -107,11 +115,11 @@ export function RepoDetail() {
        * min-w-0 on both: without it, a flex item's default min-width is its
        * content size, which would stop CommitHeatmap's own overflow-x-auto
        * from ever kicking in and blow out the row instead of scrolling. */}
-      <div className="flex flex-col gap-6 lg:flex-row">
-        <div className="min-w-0 lg:flex-2">
+      <div className="flex flex-col gap-6 xl:flex-row">
+        <div className="min-w-0 xl:flex-2">
           <CommitHeatmap repo={repo} />
         </div>
-        <div className="min-w-0 lg:flex-1">
+        <div className="min-w-0 xl:flex-1">
           <LanguageChart repo={repo} />
         </div>
       </div>
