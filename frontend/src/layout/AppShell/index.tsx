@@ -214,7 +214,10 @@ export function AppShell() {
 
         <SidebarFooter>
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800">
+            <DropdownMenuTrigger
+              side="top"
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
               <Avatar size="sm">
                 {/* Mounted unconditionally when there's a src — AvatarImage tracks
                  * its own load state, and AvatarFallback gives way once it
