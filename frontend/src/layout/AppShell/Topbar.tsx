@@ -4,7 +4,6 @@ import {
   BreadcrumbList,
   BreadcrumbItem,
   BreadcrumbLink,
-  BreadcrumbEllipsis,
   BreadcrumbPage,
   BreadcrumbSeparator,
   Button,
@@ -13,7 +12,7 @@ import {
   SidebarTrigger,
   type DateRange,
 } from "@neelamkhan21/ui";
-import { Zap } from "lucide-react";
+import { ChevronLeft, Zap } from "lucide-react";
 import { Fragment, useEffect, type MouseEvent } from "react";
 import { useDateRange } from "../../lib/dateRangeContext";
 import { useSyncStatus } from "../../lib/syncContext";
@@ -63,16 +62,13 @@ export function Topbar({ crumbs }: { crumbs: Crumb[] }) {
   // progress toast (see lib/syncContext.tsx), not duplicated on the button.
   const isSyncing = phase !== "idle";
 
-  // The trail split into the part that collapses on a narrow viewport and
-  // the part that never does. `crumbsFor` never returns an empty array, so
-  // there's always a current crumb to be the one that truncates.
-  const ancestors = crumbs.slice(0, -1);
-  const current = crumbs[crumbs.length - 1];
-  // What the collapsed ellipsis links to: the *nearest* navigable ancestor,
-  // not simply the first — a middle crumb can be unlinked (there's no
-  // standalone "Repositories" page, per crumbs.ts), and collapsing several
-  // levels into one glyph should land on the closest real page above here.
-  const collapsedTarget = [...ancestors].reverse().find((crumb) => crumb.href);
+  // Where the narrow-viewport back button goes: the nearest navigable crumb
+  // above the current page. Undefined on a top-level view, whose single
+  // crumb has nothing above it — so no back button renders there either.
+  const backTarget = crumbs
+    .slice(0, -1)
+    .reverse()
+    .find((crumb) => crumb.href);
 
   // The DateRangePicker's popover positions itself via the library's own
   // clamp-to-viewport math, but the panel's rendered width keeps settling
@@ -151,55 +147,53 @@ export function Topbar({ crumbs }: { crumbs: Crumb[] }) {
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 px-3 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
       <SidebarTrigger />
+      {/* Below `sm` the trail is replaced outright by a back button rather
+       * than compressed into a smaller trail — at 414px there's no room for
+       * "Overview / owner/repo" alongside the date and sync controls, and a
+       * truncated trail spends what room there is restating a repo name the
+       * page's own <h1> already shows two lines below. One tap up the
+       * hierarchy is the only part of a breadcrumb that a phone actually
+       * needs.
+       *
+       * It navigates to the nearest *navigable* ancestor, not through
+       * history: a breadcrumb describes where this page sits, and a middle
+       * crumb can be unlinked (there's no standalone "Repositories" page,
+       * per crumbs.ts), so the closest real page above here is the
+       * destination. History back could land anywhere. */}
+      {backTarget ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Back to ${backTarget.label}`}
+          onClick={() => navigate(backTarget.href!)}
+          className="shrink-0 sm:hidden"
+        >
+          <ChevronLeft size={16} />
+        </Button>
+      ) : null}
+
       {/* A single crumb ("Overview", "Compare") names a top-level view the
        * Sidebar already highlights as active — showing it here just
        * repeats that. The trail only earns its place once there's an
        * actual "here, via there" to show, i.e. a repo's detail page. */}
       {crumbs.length > 1 ? (
-        // min-w-0 all the way down to the current page's span: a flex item
-        // won't shrink below its content unless every ancestor in the chain
-        // says it may, and without that the trail just pushes the row wider
+        // min-w-0 runs the whole chain down to the current page's span: a
+        // flex item won't shrink below its content unless every ancestor
+        // says it may, and without that a long repo id pushes the row wider
         // than the viewport instead of truncating.
-        <Breadcrumb className="min-w-0">
-          {/* flex-nowrap overrides BreadcrumbList's own `flex-wrap`. Wrapping
-            * is the wrong answer inside a fixed `h-14` header — it doesn't
-            * make the trail fit, it makes it spill out of a row that can't
-            * grow to hold it (which is exactly what a 414px viewport showed:
-            * two stacked lines, and the controls beside it wrapping too). */}
+        <Breadcrumb className="min-w-0 max-sm:hidden">
+          {/* flex-nowrap overrides BreadcrumbList's own `flex-wrap`.
+            * Wrapping is the wrong answer inside a fixed `h-14` header — it
+            * doesn't make the trail fit, it spills it out of a row that
+            * can't grow to hold it. */}
           <BreadcrumbList className="flex-nowrap">
-            {/* Below `sm` the ancestors collapse to a single ellipsis rather
-              * than being dropped outright — at 414px there's no room for
-              * "Overview / owner/repo" plus the date and sync controls, but
-              * silently deleting the only way back up the hierarchy isn't a
-              * responsive layout, it's a missing one. The ellipsis carries
-              * the nearest navigable ancestor's href and its label as the
-              * accessible name (BreadcrumbEllipsis itself is decorative and
-              * hidden from assistive tech), so the link still says where it
-              * goes even though the glyph doesn't. */}
-            {collapsedTarget ? (
-              <>
-                <BreadcrumbItem className="shrink-0 sm:hidden">
-                  <BreadcrumbLink
-                    href={collapsedTarget.href!}
-                    aria-label={collapsedTarget.label}
-                    onClick={handleCrumbClick(collapsedTarget.href!)}
-                  >
-                    <BreadcrumbEllipsis />
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator className="shrink-0 sm:hidden" />
-              </>
-            ) : null}
-
-            {/* shrink-0: the ancestors keep their full labels and the
-              * current page is the one that gives way, since "Overview" is
-              * a fixed short word while a repo id is arbitrarily long. */}
-            {ancestors.map((crumb, i) => (
+            {crumbs.map((crumb, i) => (
               <Fragment key={crumb.label}>
-                {i > 0 ? (
-                  <BreadcrumbSeparator className="max-sm:hidden" />
-                ) : null}
-                <BreadcrumbItem className="shrink-0 max-sm:hidden">
+                {i > 0 ? <BreadcrumbSeparator className="shrink-0" /> : null}
+                {/* The linked ancestors keep their full labels and the
+                  * current page is the one that gives way: "Overview" is a
+                  * fixed short word, a repo id is arbitrarily long. */}
+                <BreadcrumbItem className={crumb.href ? "shrink-0" : "min-w-0"}>
                   {crumb.href ? (
                     <BreadcrumbLink
                       href={crumb.href}
@@ -208,20 +202,15 @@ export function Topbar({ crumbs }: { crumbs: Crumb[] }) {
                       {crumb.label}
                     </BreadcrumbLink>
                   ) : (
-                    <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
+                    // `block`, because `truncate`'s overflow/text-overflow
+                    // do nothing on the inline span BreadcrumbPage renders.
+                    <BreadcrumbPage className="block truncate">
+                      {crumb.label}
+                    </BreadcrumbPage>
                   )}
                 </BreadcrumbItem>
               </Fragment>
             ))}
-            <BreadcrumbSeparator className="shrink-0 max-sm:hidden" />
-
-            <BreadcrumbItem className="min-w-0">
-              {/* `block`, because `truncate`'s overflow/text-overflow do
-                * nothing on the inline span BreadcrumbPage renders. */}
-              <BreadcrumbPage className="block truncate">
-                {current.label}
-              </BreadcrumbPage>
-            </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
       ) : null}
