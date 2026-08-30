@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models.models import User
+from app.models.models import OAuthAccount, User
 from app.services.auth import (
     SESSION_COOKIE,
     clear_session_cookie,
@@ -206,3 +206,39 @@ async def oauth_callback(
     set_session_cookie(response, create_session(user.id))
     response.delete_cookie(OAUTH_STATE_COOKIE, path="/")
     return response
+
+
+@router.delete("/{provider}/unlink")
+def unlink_provider(provider: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Removes this provider's link from the signed-in account — the
+    schema (OAuthAccount) has always supported more than one provider per
+    user, this is just the endpoint to take one back off.
+
+    Refuses when it would be the last way back in: a password counts, and
+    so does every *other* linked provider, but unlinking someone's only
+    sign-in method would lock them out of their own account with no
+    recovery path (see the missing-password-reset note elsewhere) —
+    strictly worse than just leaving the stale link in place."""
+    if provider not in PROVIDERS:
+        raise HTTPException(404, "Unknown provider")
+
+    link = db.query(OAuthAccount).filter_by(user_id=user.id, provider=provider).first()
+    if link is None:
+        raise HTTPException(404, f"No linked {provider} account")
+
+    has_other_provider = (
+        db.query(OAuthAccount)
+        .filter(OAuthAccount.user_id == user.id, OAuthAccount.id != link.id)
+        .first()
+        is not None
+    )
+    if user.hashed_password is None and not has_other_provider:
+        raise HTTPException(
+            400,
+            "This is your only way to sign in. Set a password or link "
+            "another provider before unlinking it.",
+        )
+
+    db.delete(link)
+    db.commit()
+    return {"ok": True}
