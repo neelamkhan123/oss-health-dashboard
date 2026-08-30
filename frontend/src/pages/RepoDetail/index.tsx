@@ -2,6 +2,10 @@ import { useParams } from "react-router-dom";
 import { Badge, Button, EmptyState, Skeleton } from "@neelamkhan21/ui";
 import { ExternalLink, TriangleAlert } from "lucide-react";
 import { PageHeader } from "../../layout/PageHeader";
+import {
+  RepoActionsMenu,
+  REPO_ACTIONS_BUTTON_CLASS,
+} from "../../components/RepoActionsMenu";
 import { CommitHeatmap } from "../../components/CommitHeatmap";
 import { LanguageChart } from "../../components/LanguageChart";
 import { MergeTimeDistribution } from "../../components/MergeTimeDistribution";
@@ -9,6 +13,7 @@ import { fetchRepoFull } from "../../lib/api";
 import { useFetch } from "../../lib/useFetch";
 import { useDateRange } from "../../lib/dateRangeContext";
 import { useSyncStatus } from "../../lib/syncContext";
+import { useTrackedRepos } from "../../lib/trackedReposContext";
 import { RepoStatsRow } from "./RepoStatsRow";
 import { ContributorLeaderboard } from "./ContributorLeaderboard";
 import { WatchButton } from "./WatchButton";
@@ -17,6 +22,12 @@ export function RepoDetail() {
   const { repoId } = useParams();
   const { days } = useDateRange();
   const { version } = useSyncStatus();
+  const { sidebarRepos } = useTrackedRepos();
+  // The tracked-list entry behind this page, which is what carries `pinned`
+  // (RepoStats describes the repo's data, not this user's relationship to
+  // it). Undefined for a repo that isn't tracked — pin and remove have
+  // nothing to act on there, so the menu simply isn't offered.
+  const tracked = sidebarRepos.find((r) => r.fullName === repoId);
   const { isLoading, isError, data: repo, retry } = useFetch(
     `${repoId ?? ""}:${days}:${version}`,
     () => fetchRepoFull(repoId!, days),
@@ -54,6 +65,14 @@ export function RepoDetail() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title={repo.id}
+        titleActions={
+          tracked ? (
+            <RepoActionsMenu
+              repo={tracked}
+              buttonClassName={REPO_ACTIONS_BUTTON_CLASS}
+            />
+          ) : null
+        }
         description={
           <span className="flex items-center gap-2">
             <Badge variant="secondary">{repo.lang}</Badge>

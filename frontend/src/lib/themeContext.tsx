@@ -5,9 +5,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { Theme } from "./types";
+import type { Accent, Theme } from "./types";
+import { DEFAULT_ACCENT, isAccent } from "./accents";
 
 const STORAGE_KEY = "theme";
+const ACCENT_STORAGE_KEY = "accent";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 interface ThemeContextValue {
@@ -18,17 +20,28 @@ interface ThemeContextValue {
    *  rather than the three-way choice itself. */
   resolvedTheme: "light" | "dark";
   setTheme: (theme: Theme) => void;
+  /** The accent hue, applied as `data-accent` on `<html>` — see index.css
+   *  for what it drives. Orthogonal to light/dark: every accent defines a
+   *  value for both, and the two choices are persisted separately. */
+  accent: Accent;
+  setAccent: (accent: Accent) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-/** Owns the light/dark/system choice, persists it, and keeps the `.dark`
- *  class on `<html>` in sync — that class, not this context, is what every
- *  `dark:` utility in the app actually reacts to (see index.css's
- *  `@custom-variant dark`). Reading `localStorage` directly in the
- *  initializer, rather than defaulting to "system" and correcting in an
- *  effect, avoids a render where `theme` briefly disagrees with the class
- *  index.html's inline script already applied before React ever ran. */
+/** Owns both appearance choices — light/dark/system and the accent hue —
+ *  persists them, and keeps `<html>`'s `.dark` class and `data-accent`
+ *  attribute in sync. Those two markers on the root element, not this
+ *  context, are what the styles actually react to (see index.css's
+ *  `@custom-variant dark` and its `[data-accent]` blocks); the context just
+ *  drives them and gives the account menu something to render against.
+ *  One provider for both because they're the same kind of thing: a stored
+ *  preference that resolves to a root-element marker.
+ *
+ *  Reading `localStorage` directly in the initializers, rather than
+ *  defaulting and correcting in an effect, avoids a render where the state
+ *  briefly disagrees with what index.html's inline script already applied
+ *  before React ever ran. */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -61,12 +74,28 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY, next);
   };
 
+  const [accent, setAccentState] = useState<Accent>(() => {
+    const stored = localStorage.getItem(ACCENT_STORAGE_KEY);
+    return isAccent(stored) ? stored : DEFAULT_ACCENT;
+  });
+
+  const setAccent = (next: Accent) => {
+    setAccentState(next);
+    localStorage.setItem(ACCENT_STORAGE_KEY, next);
+  };
+
   useEffect(() => {
     document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
   }, [resolvedTheme]);
 
+  useEffect(() => {
+    document.documentElement.dataset.accent = accent;
+  }, [accent]);
+
   return (
-    <ThemeContext.Provider value={{ theme, resolvedTheme, setTheme }}>
+    <ThemeContext.Provider
+      value={{ theme, resolvedTheme, setTheme, accent, setAccent }}
+    >
       {children}
     </ThemeContext.Provider>
   );

@@ -755,6 +755,25 @@ def stop_sync():
 class AddRepoRequest(BaseModel):
     fullName: str
 
+class UpdateRepoRequest(BaseModel):
+    pinned: bool
+
+def _tracked_or_404(db: Session, user: User, full_name: str) -> TrackedRepo:
+    """This user's own link to `full_name`, for the two endpoints that act on
+    an already-tracked repo. A repo that exists in `repos` but that this user
+    doesn't track is a 404 here just like one that doesn't exist at all —
+    from this user's side of the join table there's nothing to act on
+    either way."""
+    tracked = (
+        db.query(TrackedRepo)
+        .join(Repo)
+        .filter(TrackedRepo.user_id == user.id, Repo.full_name == full_name)
+        .first()
+    )
+    if tracked is None:
+        raise HTTPException(404, f"{full_name} isn't in your tracked repositories")
+    return tracked
+
 @router.get("/repos")
 def list_repos(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """This user's own tracked-repo list, for the Sidebar and the Compare
@@ -771,7 +790,9 @@ def list_repos(db: Session = Depends(get_db), user: User = Depends(get_current_u
         .order_by(TrackedRepo.id)
         .all()
     )
-    return [{"fullName": t.repo.full_name, "id": t.repo.id} for t in tracked]
+    return [
+        {"fullName": t.repo.full_name, "id": t.repo.id, "pinned": t.pinned} for t in tracked
+    ]
 
 @router.post("/repos")
 def add_repo(payload: AddRepoRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -837,4 +858,43 @@ def add_repo(payload: AddRepoRequest, db: Session = Depends(get_db), user: User 
     # changed.
     cache_delete_prefix(f"overview:{user.id}:")
 
-    return {"fullName": repo.full_name, "id": repo.id}
+    return {"fullName": repo.full_name, "id": repo.id, "pinned": False}
+
+@router.patch("/repos/{repo_full_name:path}")
+def update_repo(
+    repo_full_name: str,
+    payload: UpdateRepoRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The sidebar context menu's Pin/Unpin. Purely this user's own view
+    preference — no cache to invalidate, since pinning changes nothing about
+    the stats /overview computes, only the order the sidebar renders them
+    in."""
+    tracked = _tracked_or_404(db, user, repo_full_name)
+    tracked.pinned = payload.pinned
+    db.commit()
+    return {"fullName": repo_full_name, "id": tracked.repo_id, "pinned": tracked.pinned}
+
+@router.delete("/repos/{repo_full_name:path}")
+def remove_repo(
+    repo_full_name: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The sidebar context menu's Remove. Deletes only this user's own
+    TrackedRepo row, never the Repo itself or anything synced onto it: that
+    row is a shared, deduplicated cache other users may still be tracking
+    (see the TrackedRepo docstring), and dropping it would throw away
+    history that re-adding the repo would then have to re-sync from
+    scratch."""
+    tracked = _tracked_or_404(db, user, repo_full_name)
+    db.delete(tracked)
+    db.commit()
+
+    # Same reasoning as add_repo's own invalidation: this user's cached
+    # overview still has the removed repo in it, and its KPIs are aggregated
+    # across whichever repos they track.
+    cache_delete_prefix(f"overview:{user.id}:")
+
+    return {"fullName": repo_full_name, "removed": True}

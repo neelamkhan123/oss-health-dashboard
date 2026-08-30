@@ -51,14 +51,25 @@
    * slate-100/slate-800 pair the library's own components use. */
   --surface-subtle: #f1f5f9;
 
+  /* The default accent, matching --chart-1's blue so a user who never opens
+   * the picker sees exactly what they saw before it existed. Overridden by
+   * whichever [data-accent] block below matches — see the note down there
+   * for what the accent covers and why it isn't just --chart-1. */
+  --accent: #2563eb;
+  --accent-soft: #60a5fa;
+
   /* The commit heatmap's sequential ramp: one hue at rising opacity, so
-   * density reads without a legend. Steps 1–3 are --chart-1 at 24/46/70%
-   * alpha; the fourth step is --chart-1 itself. Written out rather than
-   * derived because --chart-1 is a hex string and can't have an alpha
-   * applied to it in plain CSS. */
-  --heat-1: rgba(37, 99, 235, 0.24);
-  --heat-2: rgba(37, 99, 235, 0.46);
-  --heat-3: rgba(37, 99, 235, 0.7);
+   * density reads without a legend. Steps 1–3 are --accent at 24/46/70%
+   * alpha; the fourth step is --accent itself.
+   *
+   * `color-mix` rather than three hand-written rgba() triplets (what this
+   * was before): --accent is a hex string that plain CSS can't apply an
+   * alpha to, but color-mix can — which is what makes the ramp follow a
+   * user-picked accent instead of needing a fourth hardcoded value per
+   * accent per theme. */
+  --heat-1: color-mix(in srgb, var(--accent) 24%, transparent);
+  --heat-2: color-mix(in srgb, var(--accent) 46%, transparent);
+  --heat-3: color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
 /* Mirrors the `.dark` class rather than a media query now, so these
@@ -77,12 +88,96 @@
 
   --surface-subtle: #1e293b;
 
-  /* Re-stepped from the dark --chart-1, not just reused: the light steps
-   * are a dark blue fading toward white, which fades toward invisible on
-   * a dark card instead. Same alphas, lighter base. */
-  --heat-1: rgba(59, 130, 246, 0.28);
-  --heat-2: rgba(59, 130, 246, 0.5);
-  --heat-3: rgba(59, 130, 246, 0.74);
+  --accent: #3b82f6;
+
+  /* Nudged up from the light alphas, not just reused: the same mix reads
+   * lighter against a dark card, so each step needs a little more of the
+   * accent to hold its place in the ramp. The base is already the dark
+   * --accent, which every accent block below re-points on its own. */
+  --heat-1: color-mix(in srgb, var(--accent) 28%, transparent);
+  --heat-2: color-mix(in srgb, var(--accent) 50%, transparent);
+  --heat-3: color-mix(in srgb, var(--accent) 74%, transparent);
+}
+
+/* ── accent ──────────────────────────────────────────────────────────────
+ *
+ * One user-picked hue behind every place the app speaks in its *own* voice
+ * rather than encoding data: the sidebar's folder icons, the commit
+ * heatmap's ramp, the merge-time bars, the percentile bars. Those were four
+ * independent hardcoded blues; they're one token now, so picking a color in
+ * the account menu moves all of them together.
+ *
+ * Deliberately NOT --chart-1..8. That set is the *categorical* palette,
+ * copied from the library's `chartSeriesColors` and validated as a whole for
+ * contrast and color-vision separation (see the note above it) — repos are
+ * assigned a slot in it by position, and re-pointing one member at an
+ * arbitrary user choice would break the separation the set guarantees and
+ * silently change what one repo's line means relative to another's. A
+ * single-series bar has no such neighbors to stay distinguishable from,
+ * which is exactly why these four can follow a preference and those eight
+ * can't. The default accent is --chart-1's own blue, so nothing looks
+ * different until the user actually picks something.
+ *
+ * `--accent`: the strong step (600 in light, 500 in dark, the same pairing
+ * the chart palette uses) for fills that carry meaning — a bar's length, a
+ * heat cell's density.
+ * `--accent-soft`: the 400 step, one value for both themes, for decoration
+ * that sits next to text and would shout at full strength — the folder
+ * icons, which were `blue-400` in both themes before this.
+ *
+ * Every accent needs BOTH blocks: `:root.dark[data-accent=X]` (0,3,0) has to
+ * outrank the plain `:root[data-accent=X]` (0,2,0), which in turn outranks
+ * the `:root.dark` fallback above it. The bare `:root`/`:root.dark` values
+ * are only reached before the attribute exists at all — index.html sets it
+ * pre-paint, so in practice never. */
+:root[data-accent="blue"] {
+  --accent: #2563eb;
+  --accent-soft: #60a5fa;
+}
+:root.dark[data-accent="blue"] {
+  --accent: #3b82f6;
+}
+:root[data-accent="violet"] {
+  --accent: #7c3aed;
+  --accent-soft: #a78bfa;
+}
+:root.dark[data-accent="violet"] {
+  --accent: #8b5cf6;
+}
+:root[data-accent="teal"] {
+  --accent: #0d9488;
+  --accent-soft: #2dd4bf;
+}
+:root.dark[data-accent="teal"] {
+  --accent: #14b8a6;
+}
+:root[data-accent="emerald"] {
+  --accent: #059669;
+  --accent-soft: #34d399;
+}
+:root.dark[data-accent="emerald"] {
+  --accent: #10b981;
+}
+:root[data-accent="amber"] {
+  --accent: #d97706;
+  --accent-soft: #fbbf24;
+}
+:root.dark[data-accent="amber"] {
+  --accent: #f59e0b;
+}
+:root[data-accent="rose"] {
+  --accent: #e11d48;
+  --accent-soft: #fb7185;
+}
+:root.dark[data-accent="rose"] {
+  --accent: #f43f5e;
+}
+:root[data-accent="pink"] {
+  --accent: #db2777;
+  --accent-soft: #f472b6;
+}
+:root.dark[data-accent="pink"] {
+  --accent: #ec4899;
 }
 
 html,

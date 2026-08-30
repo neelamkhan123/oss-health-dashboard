@@ -25,7 +25,6 @@ import {
 import {
   LayoutDashboard,
   Activity,
-  Folder,
   LogOut,
   Sun,
   MonitorCog,
@@ -35,7 +34,9 @@ import { useTrackedRepos } from "../../lib/trackedReposContext";
 import { useTheme } from "../../lib/themeContext";
 import type { Theme } from "../../lib/types";
 import { crumbsFor } from "./crumbs";
+import { AccentPicker } from "./AccentPicker";
 import { GroupLabel } from "./GroupLabel";
+import { RepoNavItem } from "./RepoNavItem";
 import { SidebarNavButton } from "./SidebarNavButton";
 import { Topbar } from "./Topbar";
 import { useAuth } from "../../lib/authContext";
@@ -68,7 +69,7 @@ function useIsDesktop(): boolean {
 
 export function AppShell() {
   const location = useLocation();
-  const { repoNames } = useTrackedRepos();
+  const { sidebarRepos } = useTrackedRepos();
   const isDesktop = useIsDesktop();
   const [open, setOpen] = useState(isDesktop);
 
@@ -204,17 +205,12 @@ export function AppShell() {
           </SidebarGroup>
 
           <SidebarGroup>
-            <GroupLabel count={repoNames.length}>Tracked repos</GroupLabel>
+            <GroupLabel count={sidebarRepos.length}>Tracked repos</GroupLabel>
+            {/* Pinned first — see trackedReposContext's `sidebarRepos`; each
+             * entry carries its own right-click menu (pin, remove). */}
             <SidebarMenu>
-              {repoNames.map((repo) => (
-                <SidebarMenuItem key={repo}>
-                  <SidebarNavButton
-                    to={`/repos/${encodeURIComponent(repo)}`}
-                    icon={<Folder size={16} />}
-                  >
-                    {repo}
-                  </SidebarNavButton>
-                </SidebarMenuItem>
+              {sidebarRepos.map((repo) => (
+                <RepoNavItem key={repo.fullName} repo={repo} />
               ))}
             </SidebarMenu>
           </SidebarGroup>
@@ -274,6 +270,8 @@ export function AppShell() {
                   </TabsList>
                 </Tabs>
               </div>
+              <DropdownMenuLabel>Accent</DropdownMenuLabel>
+              <AccentPicker />
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleSignOut}>
                 <LogOut size={14} /> Sign out
