@@ -23,20 +23,17 @@ export function RepoStatsRow({ repo }: { repo: RepoStats }) {
   ];
 
   return (
-    <Card className="flex items-stretch overflow-hidden">
+    <div className="flex flex-wrap gap-3 items-stretch overflow-hidden">
       {stats.map(([label, value], i) => (
-        <div
-          key={label}
-          className={`flex flex-1 flex-col gap-1.5 px-5 py-4 ${
-            i === 0 ? "" : "border-l border-slate-200 dark:border-slate-800"
-          }`}
-        >
-          <span className="text-xs text-slate-500 dark:text-slate-400">{label}</span>
+        <Card key={label} className="flex flex-1 flex-col gap-1.5 px-5 py-4">
+          <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+            {label}
+          </span>
           <span className="text-xl font-semibold tracking-tight tabular-nums text-slate-950 dark:text-white">
             {value}
           </span>
-        </div>
+        </Card>
       ))}
-    </Card>
+    </div>
   );
 }

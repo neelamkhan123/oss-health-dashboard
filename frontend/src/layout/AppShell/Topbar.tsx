@@ -145,7 +145,7 @@ export function Topbar({ crumbs }: { crumbs: Crumb[] }) {
   }, []);
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 px-3 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-1 sm:gap-3 px-3 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
       <SidebarTrigger />
       {/* Below `sm` the trail is replaced outright by a back button rather
        * than compressed into a smaller trail — at 414px there's no room for
@@ -183,16 +183,16 @@ export function Topbar({ crumbs }: { crumbs: Crumb[] }) {
         // than the viewport instead of truncating.
         <Breadcrumb className="min-w-0 max-sm:hidden">
           {/* flex-nowrap overrides BreadcrumbList's own `flex-wrap`.
-            * Wrapping is the wrong answer inside a fixed `h-14` header — it
-            * doesn't make the trail fit, it spills it out of a row that
-            * can't grow to hold it. */}
+           * Wrapping is the wrong answer inside a fixed `h-14` header — it
+           * doesn't make the trail fit, it spills it out of a row that
+           * can't grow to hold it. */}
           <BreadcrumbList className="flex-nowrap">
             {crumbs.map((crumb, i) => (
               <Fragment key={crumb.label}>
                 {i > 0 ? <BreadcrumbSeparator className="shrink-0" /> : null}
                 {/* The linked ancestors keep their full labels and the
-                  * current page is the one that gives way: "Overview" is a
-                  * fixed short word, a repo id is arbitrarily long. */}
+                 * current page is the one that gives way: "Overview" is a
+                 * fixed short word, a repo id is arbitrarily long. */}
                 <BreadcrumbItem className={crumb.href ? "shrink-0" : "min-w-0"}>
                   {crumb.href ? (
                     <BreadcrumbLink

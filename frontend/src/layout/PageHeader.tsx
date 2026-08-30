@@ -16,7 +16,7 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="mb-5 flex items-start justify-between gap-4">
+    <div className="mb-5 flex flex-col sm:flex-row items-start justify-between gap-4">
       <div className="flex min-w-0 flex-col gap-1">
         <div className="flex items-center gap-1.5">
           <h1 className="m-0 text-2xl leading-tight font-semibold tracking-tight text-slate-950 dark:text-white">
