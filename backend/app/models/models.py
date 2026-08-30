@@ -8,8 +8,57 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
     email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+
+    # Nullable now: an account created through GitHub or Google has no
+    # password at all, and storing a fake unusable hash instead would mean
+    # every login path has to know which hashes are real.
+    hashed_password = Column(String, nullable=True)
+
+    # Whatever the provider told us about them, so the sidebar can show a
+    # name and face instead of a raw email. Both stay null for a plain
+    # email/password signup, which is why neither is required.
+    name = Column(String, nullable=True)
+    avatar_url = Column(String, nullable=True)
+
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # delete-orphan: unlinking a provider should delete its row, not leave a
+    # dangling link pointing at a user it's no longer attached to.
+    oauth_accounts = relationship(
+        "OAuthAccount", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    # Same reasoning as oauth_accounts above: deleting a user should delete
+    # which repos they track, not leave orphaned rows pointing at a user
+    # that no longer exists.
+    tracked_repos = relationship(
+        "TrackedRepo", back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class OAuthAccount(Base):
+    """One row per (user, provider) link — the join between a local account
+    and an identity at GitHub or Google.
+
+    The lookup key is (provider, provider_account_id), never the email: an
+    email is something a user can change at the provider, while the account
+    id is stable for the life of the account. Matching on email would mean
+    someone renaming their GitHub address silently becomes a new user."""
+
+    __tablename__ = "oauth_accounts"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    provider = Column(String, nullable=False)            # "github" | "google"
+    provider_account_id = Column(String, nullable=False)  # str, not int — Google's `sub` is opaque
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    user = relationship("User", back_populates="oauth_accounts")
+
+    __table_args__ = (
+        # The uniqueness the callback depends on: one GitHub account can
+        # never end up linked to two local users.
+        UniqueConstraint("provider", "provider_account_id", name="uq_oauth_provider_account"),
+    )
 
 class Repo(Base):
     __tablename__ = "repos"
@@ -28,6 +77,37 @@ class Repo(Base):
     pull_requests = relationship("PullRequest", back_populates="repo")
     issues = relationship("Issue", back_populates="repo")
     commits = relationship("Commit", back_populates="repo")
+    # Whichever users have added this repo to their own dashboard — see
+    # TrackedRepo below for why this is a join table rather than an
+    # owner column here.
+    trackers = relationship("TrackedRepo", back_populates="repo", cascade="all, delete-orphan")
+
+
+class TrackedRepo(Base):
+    """One row per (user, repo): which users have this repo on their own
+    dashboard. Deliberately not a `user_id` column on Repo itself — a Repo
+    row is a shared, deduplicated cache of one GitHub repository's synced
+    data (see sync.py), and the same popular repo is expected to end up
+    tracked by more than one user. A single owner column could only ever
+    represent one of them; this join table lets any number of users track
+    the same underlying Repo without re-verifying it against GitHub or
+    re-syncing its history per user."""
+
+    __tablename__ = "tracked_repos"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    repo_id = Column(Integer, ForeignKey("repos.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    user = relationship("User", back_populates="tracked_repos")
+    repo = relationship("Repo", back_populates="trackers")
+
+    __table_args__ = (
+        # The uniqueness add_repo depends on: adding a repo you already
+        # track is a 409, not a second row.
+        UniqueConstraint("user_id", "repo_id", name="uq_tracked_repo_user_repo"),
+        Index("ix_tracked_repos_user", "user_id"),
+    )
 
 class PullRequest(Base):
     __tablename__ = "pull_requests"

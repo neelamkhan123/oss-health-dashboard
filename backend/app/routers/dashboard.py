@@ -6,10 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, case, and_, within_group
 from sqlalchemy.orm import Session
+from app.services.auth import get_current_user
 from app.services.db import get_db
 from app.services.cache import cache_get, cache_set, cache_delete_prefix
 from app.services.sync import sync_all_repos, sync_one_repo, get_sync_status, cancel_sync, GITHUB_API, HEADERS
-from app.models.models import Contributor, Repo, PullRequest, Issue, Commit
+from app.models.models import Contributor, Repo, TrackedRepo, User, PullRequest, Issue, Commit
 
 router = APIRouter()
 
@@ -123,10 +124,22 @@ def _week_boundaries(n=12):
 
 # ── repo lookup ──────────────────────────────────────────────────────────
 
-def get_repo_or_404(db: Session, repo_full_name: str) -> Repo:
-    repo = db.query(Repo).filter_by(full_name=repo_full_name).first()
+def get_repo_or_404(db: Session, user_id: int, repo_full_name: str) -> Repo:
+    """A repo, scoped to what *this user* tracks — not just any repo that
+    happens to exist. Repo rows are shared (see TrackedRepo's docstring),
+    but that sharing has to stop at the DB layer: without the join here,
+    anyone signed in could read any repo's stats by guessing its full name,
+    tracked or not. 404, not 403 — same reasoning as the existing message:
+    it doesn't say whether the repo exists at all, only whether it shows up
+    on your dashboard."""
+    repo = (
+        db.query(Repo)
+        .join(TrackedRepo, TrackedRepo.repo_id == Repo.id)
+        .filter(Repo.full_name == repo_full_name, TrackedRepo.user_id == user_id)
+        .first()
+    )
     if not repo:
-        raise HTTPException(404, f"{repo_full_name:path} isn't tracked (or hasn't synced yet)")
+        raise HTTPException(404, f"{repo_full_name} isn't tracked (or hasn't synced yet)")
     return repo
 
 # ── shared computation: everything one repo's page (and one row of
@@ -410,8 +423,10 @@ def repo_stats_naive(repo_id: int, db: Session = Depends(get_db)):
     }
 
 @router.get("/repos/{repo_full_name:path}/stats")
-def repo_stats_optimized(repo_full_name: str, db: Session = Depends(get_db)):
-    repo = get_repo_or_404(db, repo_full_name)
+def repo_stats_optimized(
+    repo_full_name: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    repo = get_repo_or_404(db, user.id, repo_full_name)
     cache_key = f"repo_stats:{repo.id}"
     cached = cache_get(cache_key)
     if cached:
@@ -438,8 +453,13 @@ def repo_stats_optimized(repo_full_name: str, db: Session = Depends(get_db)):
     return response
 
 @router.get("/repos/{repo_full_name:path}/full")
-def repo_full(repo_full_name: str, days: int = DaysParam, db: Session = Depends(get_db)):
-    repo = get_repo_or_404(db, repo_full_name)
+def repo_full(
+    repo_full_name: str,
+    days: int = DaysParam,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    repo = get_repo_or_404(db, user.id, repo_full_name)
     cache_key = f"repo_full:{repo.id}:{days}"
     cached = cache_get(cache_key)
     if cached:
@@ -449,8 +469,10 @@ def repo_full(repo_full_name: str, days: int = DaysParam, db: Session = Depends(
     return data
 
 @router.get("/repos/{repo_full_name:path}/contributors")
-def repo_contributors(repo_full_name: str, db: Session = Depends(get_db)):
-    repo = get_repo_or_404(db, repo_full_name)
+def repo_contributors(
+    repo_full_name: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    repo = get_repo_or_404(db, user.id, repo_full_name)
     contributors = (
         db.query(Contributor).filter_by(repo_id=repo.id).order_by(Contributor.contributions.desc()).all()
     )
@@ -467,14 +489,16 @@ def repo_contributors(repo_full_name: str, db: Session = Depends(get_db)):
     ]
 
 @router.get("/repos/{repo_full_name:path}/watch")
-def get_watch_status(repo_full_name: str, db: Session = Depends(get_db)):
+def get_watch_status(
+    repo_full_name: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
     """Whether GITHUB_TOKEN's own account is currently watching this repo on
     GitHub — a real subscription, not anything tracked in our own DB. Reads
     straight from GitHub rather than caching: subscribing is rare enough
     that a live call on page load is cheap, and caching a boolean this
     binary would only risk showing a stale "not watching" right after the
     Watch button was just clicked."""
-    get_repo_or_404(db, repo_full_name)
+    get_repo_or_404(db, user.id, repo_full_name)
     try:
         # follow_redirects: GitHub 301s this exact endpoint to its
         # numeric-id form (`/repositories/{id}/subscription`) for at least
@@ -497,14 +521,16 @@ def get_watch_status(repo_full_name: str, db: Session = Depends(get_db)):
     return {"watching": bool(response.json().get("subscribed"))}
 
 @router.put("/repos/{repo_full_name:path}/watch")
-def watch_repo(repo_full_name: str, db: Session = Depends(get_db)):
+def watch_repo(
+    repo_full_name: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
     """Subscribes GITHUB_TOKEN's own account to the repo's notifications —
     the same effect as clicking "Watch" on github.com, for whichever
     account that token belongs to. `ignored: false` matters: PUTting a
     subscription with only `subscribed: true` still leaves a prior
     "ignored" state in place on GitHub's side, which would mute the very
     notifications this is meant to turn on."""
-    get_repo_or_404(db, repo_full_name)
+    get_repo_or_404(db, user.id, repo_full_name)
     try:
         response = httpx.put(
             f"{GITHUB_API}/repos/{repo_full_name}/subscription",
@@ -522,10 +548,12 @@ def watch_repo(repo_full_name: str, db: Session = Depends(get_db)):
     return {"watching": True}
 
 @router.delete("/repos/{repo_full_name:path}/watch")
-def unwatch_repo(repo_full_name: str, db: Session = Depends(get_db)):
+def unwatch_repo(
+    repo_full_name: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
     """Removes the subscription entirely (not the same as "ignore", which
     GitHub tracks as its own state) — the counterpart to watch_repo above."""
-    get_repo_or_404(db, repo_full_name)
+    get_repo_or_404(db, user.id, repo_full_name)
     try:
         response = httpx.delete(
             f"{GITHUB_API}/repos/{repo_full_name}/subscription",
@@ -542,13 +570,23 @@ def unwatch_repo(repo_full_name: str, db: Session = Depends(get_db)):
     return {"watching": False}
 
 @router.get("/overview")
-def overview(days: int = DaysParam, db: Session = Depends(get_db)):
-    cache_key = f"overview:{days}"
+def overview(days: int = DaysParam, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    # Scoped to this user's own tracked repos — was a global cache key
+    # before there were multiple users' dashboards to keep apart, which
+    # would otherwise hand user B whatever user A's tracked-repo set last
+    # computed here.
+    cache_key = f"overview:{user.id}:{days}"
     cached = cache_get(cache_key)
     if cached:
         return cached
 
-    repos = db.query(Repo).order_by(Repo.id).all()
+    repos = (
+        db.query(Repo)
+        .join(TrackedRepo, TrackedRepo.repo_id == Repo.id)
+        .filter(TrackedRepo.user_id == user.id)
+        .order_by(Repo.id)
+        .all()
+    )
     if not repos:
         return {"repos": [], "kpis": None}
 
@@ -702,17 +740,25 @@ class AddRepoRequest(BaseModel):
     fullName: str
 
 @router.get("/repos")
-def list_repos(db: Session = Depends(get_db)):
-    """The tracked-repo list, for the Sidebar and the Compare page — both
-    need it before (and independent of) any per-repo stats. Ordered by id
-    (insertion order) so a repo's position — and with it, repoColor's
-    palette assignment on the frontend — stays stable as more get added,
-    rather than shifting whenever the set changes."""
-    repos = db.query(Repo).order_by(Repo.id).all()
-    return [{"fullName": repo.full_name, "id": repo.id} for repo in repos]
+def list_repos(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """This user's own tracked-repo list, for the Sidebar and the Compare
+    page — both need it before (and independent of) any per-repo stats.
+    Ordered by TrackedRepo.id (the order this user added each one, not
+    Repo.id — a repo other users tracked long before this user found it
+    shouldn't jump to the front of their list) so a repo's position — and
+    with it, repoColor's palette assignment on the frontend — stays stable
+    as more get added, rather than shifting whenever the set changes."""
+    tracked = (
+        db.query(TrackedRepo)
+        .filter_by(user_id=user.id)
+        .join(Repo)
+        .order_by(TrackedRepo.id)
+        .all()
+    )
+    return [{"fullName": t.repo.full_name, "id": t.repo.id} for t in tracked]
 
 @router.post("/repos")
-def add_repo(payload: AddRepoRequest, db: Session = Depends(get_db)):
+def add_repo(payload: AddRepoRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """The Overview page's "Add repository" dialog. Verifies the repo is a
     real, public GitHub repository *synchronously* (so a typo or a private
     repo gets an immediate, specific error) before creating its row —
@@ -725,36 +771,54 @@ def add_repo(payload: AddRepoRequest, db: Session = Depends(get_db)):
     if not REPO_FULL_NAME_RE.match(full_name):
         raise HTTPException(422, 'Expected "owner/repo", e.g. "facebook/react"')
 
-    if db.query(Repo).filter_by(full_name=full_name).first():
-        raise HTTPException(409, f"{full_name} is already tracked")
+    repo = db.query(Repo).filter_by(full_name=full_name).first()
 
-    owner, name = full_name.split("/")
-    try:
-        response = httpx.get(f"{GITHUB_API}/repos/{owner}/{name}", headers=HEADERS, timeout=10)
-    except httpx.HTTPError:
-        raise HTTPException(502, "Couldn't reach GitHub to verify this repository")
-    if response.status_code == 404:
-        raise HTTPException(404, f"{full_name} isn't a public GitHub repository")
-    if response.status_code != 200:
-        raise HTTPException(502, f"GitHub returned an unexpected error ({response.status_code})")
+    if repo is not None:
+        # Someone (possibly this same user, previously; possibly another
+        # user entirely) already tracks this repo, so its Repo row — and
+        # everything already synced onto it — exists and is kept fresh by
+        # the beat schedule regardless. All that's missing, if anything, is
+        # *this* user's own link to it: no GitHub round trip and no new
+        # sync needed, both already happened when the row was first created.
+        already_tracked = (
+            db.query(TrackedRepo).filter_by(user_id=user.id, repo_id=repo.id).first()
+        )
+        if already_tracked is not None:
+            raise HTTPException(409, f"{full_name} is already tracked")
+    else:
+        owner, name = full_name.split("/")
+        try:
+            response = httpx.get(f"{GITHUB_API}/repos/{owner}/{name}", headers=HEADERS, timeout=10)
+        except httpx.HTTPError:
+            raise HTTPException(502, "Couldn't reach GitHub to verify this repository")
+        if response.status_code == 404:
+            raise HTTPException(404, f"{full_name} isn't a public GitHub repository")
+        if response.status_code != 200:
+            raise HTTPException(502, f"GitHub returned an unexpected error ({response.status_code})")
 
-    data = response.json()
-    license_info = data.get("license") or {}
-    repo = Repo(
-        full_name=full_name,
-        stars=data.get("stargazers_count"),
-        forks=data.get("forks_count"),
-        language=data.get("language"),
-        license=license_info.get("spdx_id") or license_info.get("name"),
-    )
-    db.add(repo)
+        data = response.json()
+        license_info = data.get("license") or {}
+        repo = Repo(
+            full_name=full_name,
+            stars=data.get("stargazers_count"),
+            forks=data.get("forks_count"),
+            language=data.get("language"),
+            license=license_info.get("spdx_id") or license_info.get("name"),
+        )
+        db.add(repo)
+        db.flush()  # assigns repo.id without ending the transaction
+
+        sync_one_repo.delay(full_name)
+
+    db.add(TrackedRepo(user_id=user.id, repo_id=repo.id))
     db.commit()
     db.refresh(repo)
 
-    sync_one_repo.delay(full_name)
-    # The overview list is cached per `days` window; a newly tracked repo
-    # (even before its own sync finishes) needs to show up there right
-    # away rather than waiting out the cache's 15-minute TTL.
-    cache_delete_prefix("overview:")
+    # This user's own overview is cached per `days` window; a newly tracked
+    # repo (even before its own sync finishes, for a genuinely new one)
+    # needs to show up there right away rather than waiting out the cache's
+    # 15-minute TTL. Scoped to this user — nobody else's cached overview
+    # changed.
+    cache_delete_prefix(f"overview:{user.id}:")
 
     return {"fullName": repo.full_name, "id": repo.id}

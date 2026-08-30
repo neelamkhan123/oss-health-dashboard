@@ -8,6 +8,9 @@ import { lazy } from "react";
 // .then((m) => ({ default: m.X })) adapts each page's named export to what
 // lazy() requires (a default export) without changing how the pages
 // themselves are written.
+export const LazyLogin = lazy(() =>
+  import("./Login").then((m) => ({ default: m.Login })),
+);
 export const LazyOverview = lazy(() =>
   import("./Overview").then((m) => ({ default: m.Overview })),
 );

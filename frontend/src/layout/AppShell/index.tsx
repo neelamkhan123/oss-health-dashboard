@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Sidebar,
   SidebarProvider,
@@ -8,13 +8,24 @@ import {
   SidebarGroup,
   SidebarMenu,
   SidebarMenuItem,
+  SidebarFooter,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
 } from "@neelamkhan21/ui";
-import { LayoutDashboard, Activity, Folder } from "lucide-react";
+import { LayoutDashboard, Activity, Folder, LogOut } from "lucide-react";
 import { useTrackedRepos } from "../../lib/trackedReposContext";
 import { crumbsFor } from "./crumbs";
 import { GroupLabel } from "./GroupLabel";
 import { SidebarNavButton } from "./SidebarNavButton";
 import { Topbar } from "./Topbar";
+import { useAuth } from "../../lib/authContext";
 
 // Matches the `lg:`/`max-lg:` breakpoint used below on the Sidebar itself —
 // keep the two in sync if this ever changes, since the JS-driven default
@@ -30,7 +41,9 @@ const DESKTOP_QUERY = "(min-width: 1024px)";
  * load would be exactly backwards from what "collapsed on mobile" means.
  */
 function useIsDesktop(): boolean {
-  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia(DESKTOP_QUERY).matches);
+  const [isDesktop, setIsDesktop] = useState(
+    () => window.matchMedia(DESKTOP_QUERY).matches,
+  );
   useEffect(() => {
     const mql = window.matchMedia(DESKTOP_QUERY);
     const handleChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
@@ -45,6 +58,26 @@ export function AppShell() {
   const { repoNames } = useTrackedRepos();
   const isDesktop = useIsDesktop();
   const [open, setOpen] = useState(isDesktop);
+
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+
+  const handleSignOut = async () => {
+    await logout();
+    // RequireAuth would redirect here on its own once `user` goes null, but
+    // navigating explicitly avoids a frame of the guard's loading state.
+    navigate("/login", { replace: true });
+  };
+
+  // Initials from the name when we have one, otherwise the first letter of
+  // the email — every account has one of the two, so the fallback never
+  // renders empty.
+  const initials = (user?.name ?? user?.email ?? "?")
+    .split(" ")
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
   // "Adjusting state when a prop changes", React's own name for this
   // pattern (see the useState docs) — setState called conditionally during
@@ -172,6 +205,34 @@ export function AppShell() {
             </SidebarMenu>
           </SidebarGroup>
         </SidebarContent>
+
+        <SidebarFooter>
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800">
+              <Avatar size="sm">
+                {/* Mounted unconditionally when there's a src — AvatarImage tracks
+                 * its own load state, and AvatarFallback gives way once it
+                 * resolves, so a slow or dead avatar URL never leaves a gap. */}
+                {user?.avatarUrl ? (
+                  <AvatarImage src={user.avatarUrl} alt="" />
+                ) : null}
+                <AvatarFallback>{initials}</AvatarFallback>
+              </Avatar>
+              <span className="min-w-0 flex-1 truncate text-sm text-slate-700 dark:text-slate-300">
+                {user?.name ?? user?.email}
+              </span>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {/* The email even when the name is shown above — it's how you tell
+               * which of two accounts you're actually in. */}
+              <DropdownMenuLabel>{user?.email}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleSignOut}>
+                <LogOut size={14} /> Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SidebarFooter>
       </Sidebar>
 
       {/* z-20: above <main>'s own stacking (auto) so it actually dims the
