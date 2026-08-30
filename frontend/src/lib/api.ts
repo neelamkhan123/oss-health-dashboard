@@ -1,4 +1,11 @@
-import type { OverviewResponse, RepoStats, ContributorRow, SyncStatus, CurrentUser } from "./types";
+import type {
+  OverviewResponse,
+  RepoStats,
+  ContributorRow,
+  SyncStatus,
+  CurrentUser,
+  TrackedRepo,
+} from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -74,7 +81,7 @@ export function stopSync(): Promise<{ cancelled: string[] }> {
 /** The tracked-repo list — the Sidebar and Compare page's source of truth
  *  (see lib/trackedReposContext.tsx), not the hardcoded fallback in
  *  lib/constants.ts. */
-export function fetchTrackedRepos(): Promise<{ fullName: string; id: number }[]> {
+export function fetchTrackedRepos(): Promise<TrackedRepo[]> {
   return getJSON("/dashboard/repos");
 }
 
@@ -83,7 +90,7 @@ export function fetchTrackedRepos(): Promise<{ fullName: string; id: number }[]>
  *  that doesn't exist on GitHub all come back as a specific error message
  *  (the backend's `HTTPException(detail=...)`) rather than a bare status
  *  code, since the dialog needs to show the user *why* it failed. */
-export async function addTrackedRepo(fullName: string): Promise<{ fullName: string; id: number }> {
+export async function addTrackedRepo(fullName: string): Promise<TrackedRepo> {
   const res = await fetch(`${API_URL}/dashboard/repos`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -96,6 +103,40 @@ export async function addTrackedRepo(fullName: string): Promise<{ fullName: stri
     throw new Error(body?.detail || `/dashboard/repos -> ${res.status}`);
   }
   return body;
+}
+
+/** The sidebar context menu's Remove. Untracks the repo for the signed-in
+ *  user only — the backend keeps the shared Repo row and its synced history
+ *  (see the endpoint's own docstring), so re-adding it later is instant
+ *  rather than a fresh sync. Same specific-error handling as
+ *  addTrackedRepo: "isn't in your tracked repositories" is worth showing. */
+export async function removeTrackedRepo(fullName: string): Promise<{ removed: boolean }> {
+  return repoRequest(fullName, "DELETE");
+}
+
+/** The sidebar context menu's Pin/Unpin — a per-user ordering preference,
+ *  not a change to any repo's data. */
+export async function setRepoPinned(fullName: string, pinned: boolean): Promise<TrackedRepo> {
+  return repoRequest(fullName, "PATCH", { pinned });
+}
+
+/** Shared by removeTrackedRepo/setRepoPinned above, both of which address
+ *  one already-tracked repo and can fail with a `detail` worth surfacing —
+ *  the same shape watchRequest already uses for its own pair. */
+async function repoRequest<T>(fullName: string, method: "DELETE" | "PATCH", body?: unknown): Promise<T> {
+  const path = `/dashboard/repos/${encodeURIComponent(fullName)}`;
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+    credentials: CREDS,
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  const responseBody = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(responseBody?.detail || `${path} -> ${res.status}`);
+  }
+  return responseBody;
 }
 
 /** Whether GITHUB_TOKEN's own account is currently watching this repo on

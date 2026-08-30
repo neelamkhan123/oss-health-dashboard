@@ -62,7 +62,7 @@ export function MergeTimeDistribution({ repo }: { repo: RepoStats }) {
               <XAxis dataKey="bucket" tickLine={false} axisLine={false} fontSize={12} />
               <YAxis tickLine={false} axisLine={false} fontSize={12} />
               <RechartsTooltip />
-              <Bar dataKey="prs" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="prs" fill="var(--accent)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </Chart>

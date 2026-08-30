@@ -38,7 +38,7 @@ export function TrackedRepositories({
           <Folder
             size={14}
             aria-hidden="true"
-            className="text-blue-300 fill-blue-300"
+            className="fill-[var(--accent-soft)] text-[var(--accent-soft)]"
           />
           {repo.id}
         </a>
@@ -116,5 +116,11 @@ export function TrackedRepositories({
   // pre-sort the rows we hand it instead, fastest-merging repo first.
   const rows = [...repos].sort((a, b) => (a.merge.v ?? 0) - (b.merge.v ?? 0));
 
-  return <StyledDataTable columns={columns} data={rows} getRowId={(repo) => repo.id} />;
+  return (
+    <StyledDataTable
+      columns={columns}
+      data={rows}
+      getRowId={(repo) => repo.id}
+    />
+  );
 }

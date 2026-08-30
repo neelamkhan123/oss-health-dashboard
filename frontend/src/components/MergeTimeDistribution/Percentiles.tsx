@@ -38,7 +38,7 @@ export function Percentiles({ repo }: { repo: RepoStats }) {
               >
                 <div
                   className="h-full"
-                  style={{ width: `${width}%`, background: "var(--chart-1)" }}
+                  style={{ width: `${width}%`, background: "var(--accent)" }}
                 />
               </div>
             </div>

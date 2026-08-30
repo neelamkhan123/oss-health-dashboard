@@ -108,6 +108,11 @@ class TrackedRepo(Base):
     repo_id = Column(Integer, ForeignKey("repos.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+    # Whether this user has pinned the repo to the top of their sidebar.
+    # Per-tracker, not per-Repo, for the same reason this table exists at
+    # all: one user pinning React says nothing about anyone else's list.
+    pinned = Column(Boolean, nullable=False, default=False, server_default="false")
+
     user = relationship("User", back_populates="tracked_repos")
     repo = relationship("Repo", back_populates="trackers")
 

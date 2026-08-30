@@ -10,10 +10,14 @@ import type { MouseEvent, ReactNode } from "react";
 export function SidebarNavButton({
   to,
   icon,
+  className,
   children,
 }: {
   to: string;
   icon: ReactNode;
+  /** Merged onto the underlying anchor — the repo entries use it to
+   *  reserve room for their own hover-revealed actions button. */
+  className?: string;
   children: ReactNode;
 }) {
   const location = useLocation();
@@ -33,6 +37,7 @@ export function SidebarNavButton({
       href={to}
       icon={icon}
       isActive={isActive}
+      className={className}
       onClick={handleClick}
     >
       {children}

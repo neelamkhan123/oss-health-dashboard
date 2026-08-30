@@ -18,6 +18,15 @@
           (stored !== "light" &&
             window.matchMedia("(prefers-color-scheme: dark)").matches);
         document.documentElement.classList.toggle("dark", isDark);
+
+        // Same reasoning for the accent: without this the first paint uses
+        // index.css's default blue and then snaps to the saved hue once
+        // ThemeProvider's effect runs. Unvalidated on purpose — a junk
+        // value simply matches no [data-accent] block, so the CSS falls
+        // back to that same default; lib/accents.ts does the real
+        // narrowing once it's loaded.
+        var accent = localStorage.getItem("accent");
+        if (accent) document.documentElement.dataset.accent = accent;
       })();
     </script>
   </head>

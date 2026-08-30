@@ -17,6 +17,16 @@ export type CurrentUser = {
   avatarUrl: string | null;
 };
 
+/** One row of `GET /dashboard/repos` — this user's own link to a repo,
+ *  not the repo itself. `pinned` is a per-user ordering preference the
+ *  sidebar reads (see lib/trackedReposContext.tsx); nothing else about a
+ *  repo's data changes with it. */
+export type TrackedRepo = {
+  fullName: string;
+  id: number;
+  pinned: boolean;
+};
+
 export type ContributorRow = {
   login: string;
   commits: number;
@@ -158,3 +168,10 @@ export function repoShort(repoId: string): string {
  *  itself; the type lives here with the app's other cross-file shapes
  *  (same as `CurrentUser` above), since ThemeToggle needs it too. */
 export type Theme = "light" | "dark" | "system";
+
+/** The user's accent choice — one hue behind the folder icons, the commit
+ *  heatmap, the merge-time bars, and the percentile bars (see index.css's
+ *  own note for what it covers and why it isn't the chart palette). Lives
+ *  here with `Theme` for the same reason; the hues themselves are in
+ *  lib/accents.ts, which is the list this union has to stay in step with. */
+export type Accent = "blue" | "violet" | "teal" | "emerald" | "amber" | "rose";

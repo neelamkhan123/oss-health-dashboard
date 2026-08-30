@@ -2,26 +2,27 @@ import { Card } from "@neelamkhan21/ui";
 import { trailingMonths, type RepoStats } from "../lib/types";
 
 /**
- * A day's cell color, stepped through the primary series hue rather than
+ * A day's cell color, stepped through the app's accent hue rather than
  * given its own scale.
  *
  * Sequential, not categorical: the four filled steps are one hue at rising
  * opacity, so "more commits" reads as "darker" without a legend — which is
  * the whole point of a heatmap, and which a multi-hue ramp destroys. It's
- * `--chart-1` deliberately, so the densest days match the bar chart and the
+ * `--accent` deliberately, so the densest days match the bar chart and the
  * percentile bars further down the page instead of introducing a fifth
  * color to the screen. Zero gets the neutral surface, not the lightest step
  * — "no commits" is a different statement from "few commits".
  *
  * The steps themselves live in index.css (`--heat-1..3`), which is what
- * lets them be re-stepped for dark mode; see the note there.
+ * lets them be re-stepped for dark mode and follow the user's accent; see
+ * the note there.
  */
 function heatColor(value: number): string {
   if (value === 0) return "var(--surface-subtle)";
   if (value < 4) return "var(--heat-1)";
   if (value < 8) return "var(--heat-2)";
   if (value < 12) return "var(--heat-3)";
-  return "var(--chart-1)";
+  return "var(--accent)";
 }
 
 /** The values the legend swatches stand for — one per heatColor step. */
