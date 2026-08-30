@@ -190,11 +190,31 @@ export function AppShell() {
 
       <div className="flex min-w-0 flex-1 flex-col bg-slate-50 dark:bg-slate-900">
         <Topbar crumbs={crumbsFor(location.pathname)} />
-        {/* inert, not aria-hidden: the goal is unfocusable-and-unclickable
+        {/* `relative` is load-bearing, not decoration. Tailwind's `sr-only`
+         * is `position: absolute`, and an absolutely positioned element is
+         * only clipped by an `overflow` ancestor when that ancestor is in
+         * its *containing-block* chain. With everything up to <html>
+         * position:static, any `sr-only` in here resolved against the
+         * initial containing block instead — escaping this element's own
+         * overflow-y:auto and contributing its static position to the
+         * *document's* scroll height. PaginationEllipsis's "More pages"
+         * span, sitting at the bottom of a long repo-detail page, pushed
+         * documentElement.scrollHeight to 1594px against a 1003px
+         * viewport: ~590px of dead scrollable space below an app whose
+         * <body> measured a correct 1003px the whole time (which is
+         * exactly why it looked like a browser bug). Positioning this
+         * element makes it the containing block for those descendants, so
+         * they're clipped here and can't reach the document at all — and
+         * that holds for every sr-only in the app, not just that one.
+         *
+         * inert, not aria-hidden: the goal is unfocusable-and-unclickable
          * while the drawer covers it, same as Dialog/Popover do for
          * whatever sits behind them — not merely hidden from a screen
          * reader while still reachable by keyboard. */}
-        <main className="flex-1 overflow-y-auto p-6" inert={!isDesktop && open ? true : undefined}>
+        <main
+          className="relative flex-1 overflow-y-auto p-6"
+          inert={!isDesktop && open ? true : undefined}
+        >
           <Outlet />
         </main>
       </div>
