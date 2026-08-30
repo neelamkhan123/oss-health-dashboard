@@ -35,6 +35,12 @@ export type StatusVariant = "secondary" | "destructive" | "outline" | "default";
 export type RepoStats = {
   id: string; // owner/name
   lang: string;
+  /** Full breakdown by bytes of code, sorted descending — from
+   *  GET /repos/{owner}/{name}/languages, distinct from `lang` above
+   *  (linguist's single guess at the primary language). Empty for a repo
+   *  that hasn't synced since this was added; render the `lang` badge
+   *  alone in that case rather than an empty chart. */
+  languages: { name: string; bytes: number; pct: number }[];
   license: string;
   stars: string;
   forks: string;
