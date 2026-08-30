@@ -1,6 +1,17 @@
 @import "tailwindcss";
 @source "../node_modules/@neelamkhan21/ui/dist";
 
+/* Tailwind v4's default `dark:` variant is `prefers-color-scheme` — fine
+ * for following the OS, but it can't be overridden by an in-app toggle.
+ * Redefining it to key off a `.dark` class on <html> instead lets
+ * ThemeProvider (src/lib/themeContext.tsx) drive both an explicit
+ * light/dark choice *and* "system" through the same switch: for
+ * "system" it just sets the class to match matchMedia itself, so every
+ * `dark:` utility in the app — and in @neelamkhan21/ui, compiled into
+ * this same build via the @source above — stays governed by one flag
+ * either way. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   color-scheme: light dark;
   font-synthesis: none;
@@ -50,28 +61,28 @@
   --heat-3: rgba(37, 99, 235, 0.7);
 }
 
-/* The library's `dark:` variant is Tailwind v4's default, i.e.
- * prefers-color-scheme — matched here so the two switch together. */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --chart-1: #3b82f6;
-    --chart-2: #ea580c;
-    --chart-3: #0d9488;
-    --chart-4: #d97706;
-    --chart-5: #ec4899;
-    --chart-6: #16a34a;
-    --chart-7: #8b5cf6;
-    --chart-8: #ef4444;
+/* Mirrors the `.dark` class rather than a media query now, so these
+ * tokens switch in lockstep with every `dark:` utility above — including
+ * while the user has picked "system", since ThemeProvider keeps the
+ * class synced to matchMedia in that case too. */
+:root.dark {
+  --chart-1: #3b82f6;
+  --chart-2: #ea580c;
+  --chart-3: #0d9488;
+  --chart-4: #d97706;
+  --chart-5: #ec4899;
+  --chart-6: #16a34a;
+  --chart-7: #8b5cf6;
+  --chart-8: #ef4444;
 
-    --surface-subtle: #1e293b;
+  --surface-subtle: #1e293b;
 
-    /* Re-stepped from the dark --chart-1, not just reused: the light steps
-     * are a dark blue fading toward white, which fades toward invisible on
-     * a dark card instead. Same alphas, lighter base. */
-    --heat-1: rgba(59, 130, 246, 0.28);
-    --heat-2: rgba(59, 130, 246, 0.5);
-    --heat-3: rgba(59, 130, 246, 0.74);
-  }
+  /* Re-stepped from the dark --chart-1, not just reused: the light steps
+   * are a dark blue fading toward white, which fades toward invisible on
+   * a dark card instead. Same alphas, lighter base. */
+  --heat-1: rgba(59, 130, 246, 0.28);
+  --heat-2: rgba(59, 130, 246, 0.5);
+  --heat-3: rgba(59, 130, 246, 0.74);
 }
 
 html,
