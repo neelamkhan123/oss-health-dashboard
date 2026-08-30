@@ -1,4 +1,4 @@
-import type { OverviewResponse, RepoStats, ContributorRow, SyncStatus } from "./types";
+import type { OverviewResponse, RepoStats, ContributorRow, SyncStatus, CurrentUser } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -9,8 +9,16 @@ const API_URL = import.meta.env.VITE_API_URL;
  *  leaves an un-timed-out fetch pending for the life of the page). */
 const TIMEOUT_MS = 8000;
 
+/** Every request goes cross-origin (5173 -> 8000 in dev), and `/api/dashboard`
+ *  now sits behind `get_current_user` (Part 11) same as `/api/auth` always
+ *  has — so every call needs the session cookie riding along explicitly.
+ *  Fetch never sends cookies cross-origin on its own; omitting this turns
+ *  every request here into a 401 regardless of whether the user is signed
+ *  in. */
+const CREDS: RequestCredentials = "include";
+
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+  const res = await fetch(`${API_URL}${path}`, { credentials: CREDS, signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!res.ok) {
     throw new Error(`${path} -> ${res.status}`);
   }
@@ -22,6 +30,7 @@ async function getJSON<T>(path: string): Promise<T> {
 async function postJSON<T>(path: string): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
+    credentials: CREDS,
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!res.ok) {
@@ -79,6 +88,7 @@ export async function addTrackedRepo(fullName: string): Promise<{ fullName: stri
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fullName }),
+    credentials: CREDS,
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   const body = await res.json().catch(() => null);
@@ -101,7 +111,7 @@ export function fetchWatchStatus(repoFullName: string): Promise<{ watching: bool
  *  addTrackedRepo's own error handling above. */
 async function watchRequest(repoFullName: string, method: "PUT" | "DELETE"): Promise<{ watching: boolean }> {
   const path = `/dashboard/repos/${encodeURIComponent(repoFullName)}/watch`;
-  const res = await fetch(`${API_URL}${path}`, { method, signal: AbortSignal.timeout(TIMEOUT_MS) });
+  const res = await fetch(`${API_URL}${path}`, { method, credentials: CREDS, signal: AbortSignal.timeout(TIMEOUT_MS) });
   const body = await res.json().catch(() => null);
   if (!res.ok) {
     throw new Error(body?.detail || `${path} -> ${res.status}`);
@@ -137,4 +147,57 @@ export async function fetchContributors(repoFullName: string): Promise<Contribut
     reviews: c.reviews,
     last: c.lastActive,
   }));
+}
+
+// ── auth ─────────────────────────────────────────────────────────────────
+
+/** Shared by signup/login/logout below: all three set or clear the session
+ *  cookie as a side effect of the response headers (see set_session_cookie /
+ *  clear_session_cookie on the backend), so the body is all a caller needs.
+ *  Same reasoning as addTrackedRepo's error handling above — a bad password,
+ *  a taken email, or "sign in with your password first" all come back as a
+ *  specific `detail` the login/signup form needs to show, not a bare status
+ *  code. */
+async function authRequest<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+    credentials: CREDS,
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  const responseBody = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(responseBody?.detail || `${path} -> ${res.status}`);
+  }
+  return responseBody;
+}
+
+export function signup(email: string, password: string): Promise<CurrentUser> {
+  return authRequest("/auth/signup", { email, password });
+}
+
+export function login(email: string, password: string): Promise<CurrentUser> {
+  return authRequest("/auth/login", { email, password });
+}
+
+export function logout(): Promise<{ ok: boolean }> {
+  return authRequest("/auth/logout");
+}
+
+/** Who the session cookie belongs to, or a rejected promise on a 401 — the
+ *  frontend's only way to ask, since it cannot read the httpOnly cookie
+ *  itself. Call on app load to decide between the signed-in app and the
+ *  login page. */
+export function fetchMe(): Promise<CurrentUser> {
+  return getJSON<CurrentUser>("/auth/me");
+}
+
+/** Not a fetch — a plain navigation target for the "Continue with
+ *  GitHub/Google" buttons. `window.location.href = oauthLoginUrl("github")`
+ *  hands the browser to the backend, which redirects it on to the provider;
+ *  going through `fetch` here would follow the redirect chain in the
+ *  background instead of taking the user's browser along with it. */
+export function oauthLoginUrl(provider: "github" | "google"): string {
+  return `${API_URL}/auth/${provider}/login`;
 }

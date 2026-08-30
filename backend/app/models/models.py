@@ -8,8 +8,50 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
     email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+
+    # Nullable now: an account created through GitHub or Google has no
+    # password at all, and storing a fake unusable hash instead would mean
+    # every login path has to know which hashes are real.
+    hashed_password = Column(String, nullable=True)
+
+    # Whatever the provider told us about them, so the sidebar can show a
+    # name and face instead of a raw email. Both stay null for a plain
+    # email/password signup, which is why neither is required.
+    name = Column(String, nullable=True)
+    avatar_url = Column(String, nullable=True)
+
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # delete-orphan: unlinking a provider should delete its row, not leave a
+    # dangling link pointing at a user it's no longer attached to.
+    oauth_accounts = relationship(
+        "OAuthAccount", back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class OAuthAccount(Base):
+    """One row per (user, provider) link — the join between a local account
+    and an identity at GitHub or Google.
+
+    The lookup key is (provider, provider_account_id), never the email: an
+    email is something a user can change at the provider, while the account
+    id is stable for the life of the account. Matching on email would mean
+    someone renaming their GitHub address silently becomes a new user."""
+
+    __tablename__ = "oauth_accounts"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    provider = Column(String, nullable=False)            # "github" | "google"
+    provider_account_id = Column(String, nullable=False)  # str, not int — Google's `sub` is opaque
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    user = relationship("User", back_populates="oauth_accounts")
+
+    __table_args__ = (
+        # The uniqueness the callback depends on: one GitHub account can
+        # never end up linked to two local users.
+        UniqueConstraint("provider", "provider_account_id", name="uq_oauth_provider_account"),
+    )
 
 class Repo(Base):
     __tablename__ = "repos"

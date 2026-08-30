@@ -5,6 +5,18 @@
  *  that case rather than treating `null` as zero. */
 export type MetricValue = { v: number | null; d: string };
 
+/** As `POST /auth/signup|login` and `GET /auth/me` return it — see
+ *  routers/auth.py's `serialize()`. `name`/`avatarUrl` are null for a
+ *  password-only account that's never linked an OAuth provider. The session
+ *  itself lives in an httpOnly cookie the frontend never reads directly —
+ *  this is the only shape it ever sees a signed-in user in. */
+export type CurrentUser = {
+  id: number;
+  email: string;
+  name: string | null;
+  avatarUrl: string | null;
+};
+
 export type ContributorRow = {
   login: string;
   commits: number;
