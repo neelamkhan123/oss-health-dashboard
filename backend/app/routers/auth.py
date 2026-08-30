@@ -25,6 +25,11 @@ from app.services.oauth import (
     google_authorize_url,
     upsert_oauth_user,
 )
+from app.services.rate_limit import (
+    check_login_rate_limit,
+    clear_login_attempts,
+    record_login_failure,
+)
 
 router = APIRouter()
 
@@ -84,7 +89,13 @@ def signup(req: SignupRequest, response: Response, db: Session = Depends(get_db)
 
 
 @router.post("/login")
-def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)):
+def login(req: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    # request.client is only None for requests with no transport-level
+    # peer (e.g. ASGI test clients that don't set one) — "unknown" still
+    # gives every such request one shared bucket rather than crashing.
+    ip = request.client.host if request.client else "unknown"
+    check_login_rate_limit(req.email, ip)
+
     user = db.query(User).filter_by(email=req.email).first()
 
     # Three failures, one message. `hashed_password is None` is the
@@ -94,8 +105,10 @@ def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)):
     if user is None or user.hashed_password is None or not verify_password(
         req.password, user.hashed_password
     ):
+        record_login_failure(req.email, ip)
         raise HTTPException(401, "Incorrect email or password")
 
+    clear_login_attempts(req.email, ip)
     set_session_cookie(response, create_access_token(user.id))
     return serialize(user)
 
