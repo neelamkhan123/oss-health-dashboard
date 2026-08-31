@@ -105,54 +105,15 @@ for i in $(seq 1 60); do
 done
 ok "k3s ready"
 
-# ── ship the manifests ──────────────────────────────────────────────────
-say "copying manifests"
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-cp k8s/*.yaml "$TMP/"
-sed -i.bak "s|REPLACE_ME_DOCKERHUB_USER/oss-dashboard-api|${API_IMAGE%:*}|g" "$TMP"/*.yaml
-sed -i.bak "s|REPLACE_ME_DOCKERHUB_USER/oss-dashboard-web|${WEB_IMAGE%:*}|g" "$TMP"/*.yaml
 HOST=$(public_host "$IP")
-sed -i.bak "s|http://REPLACE_ME_HOST|${HOST}|g" "$TMP"/configmap.yaml
-if use_https; then
-  # A Secure cookie is only sent over HTTPS, so this flips with the scheme —
-  # setting it wrongly in either direction silently breaks every login.
-  sed -i.bak "s|COOKIE_SECURE: \"false\"|COOKIE_SECURE: \"true\"|" "$TMP"/configmap.yaml
-  sed -i.bak "s|REPLACE_ME_DOMAIN|${DUCKDNS_SUBDOMAIN}.duckdns.org|" "$TMP"/caddy.yaml
-  sed -i.bak "s|REPLACE_ME_ACME_EMAIL|${ACME_EMAIL:-admin@${DUCKDNS_SUBDOMAIN}.duckdns.org}|" "$TMP"/caddy.yaml
-else
-  rm -f "$TMP"/caddy.yaml
-fi
-rm -f "$TMP"/*.bak
-scp -q -i "$KEY_FILE" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-    -o LogLevel=ERROR "$TMP"/*.yaml "ubuntu@${IP}:~/"
-
-# ── apply, in dependency order ──────────────────────────────────────────
-say "applying config and data tier"
-ssh_node "$IP" 'export KUBECONFIG=~/.kube/config
-kubectl apply -f secret.yaml -f configmap.yaml -f postgres.yaml -f redis.yaml
-kubectl rollout status statefulset/postgres --timeout=180s
-kubectl rollout status deployment/redis --timeout=120s'
-
-say "running migrations"
-ssh_node "$IP" 'export KUBECONFIG=~/.kube/config
-kubectl delete job migrate --ignore-not-found >/dev/null
-kubectl apply -f migrate-job.yaml
-kubectl wait --for=condition=complete job/migrate --timeout=240s
-kubectl logs job/migrate | tail -5'
-
-say "starting the application"
-ssh_node "$IP" 'export KUBECONFIG=~/.kube/config
-kubectl apply -f deployment.yaml -f web.yaml
-kubectl rollout status deployment/api --timeout=180s
-kubectl rollout status deployment/web --timeout=120s'
+ship_and_apply "$IP" "$HOST"
 
 if use_https; then
   # Put yesterday's certificates back before Caddy starts, so it renews an
   # existing one instead of asking Let's Encrypt for a new one every deploy.
   if [ -f "$CADDY_DATA_ARCHIVE" ]; then
     say "restoring saved certificates"
-    scp -q -i "$KEY_FILE" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-        -o LogLevel=ERROR "$CADDY_DATA_ARCHIVE" "ubuntu@${IP}:/tmp/caddy-data.tar.gz"
+    scp_node "$CADDY_DATA_ARCHIVE" "${IP}:/tmp/caddy-data.tar.gz"
   fi
 
   say "starting caddy (this obtains the certificate)"
@@ -171,7 +132,7 @@ fi'
   done
 fi
 
-URL=$(public_host "$IP")
+URL="$HOST"
 say "checking $URL/health"
 for i in $(seq 1 20); do
   curl -fsS "$URL/health" >/dev/null 2>&1 && break

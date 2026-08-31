@@ -90,6 +90,22 @@ Left open: nothing forces you to use it. Without a hostname the stack still
 comes up on a bare IP over plain HTTP, which is the right default for a quick
 check and useless for showing anyone.
 
+### A second target: a host that is already free
+
+`deploy/remote-up.sh` (`task deploy:remote`) deploys the same manifests to any
+machine reachable over ssh, installing k3s if it isn't there. The motivating
+case is an Oracle Cloud Always Free VM — 4 Ampere cores and 24 GB, free
+indefinitely — which gives a permanently live URL for nothing, where the AWS
+path gives an on-demand one for pennies.
+
+The substitution and apply logic is shared with the AWS script rather than
+copied, so the two cannot drift. Two differences worth knowing: a persistent
+host needs no certificate archiving, because Caddy's PersistentVolumeClaim
+survives redeploys on its own; and the script checks `uname -m` against the
+architectures the images were built for before it deploys anything, because
+Oracle's free shape is arm64 and a mismatched image pulls fine and then dies
+with `exec format error`.
+
 ### Parts 17–19 below are still accurate
 
 They describe the managed-services deployment: RDS, ElastiCache, EC2, and the

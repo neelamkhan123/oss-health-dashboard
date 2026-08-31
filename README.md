@@ -17,8 +17,9 @@ and beat.
 [`@neelamkhan21/ui`](https://www.npmjs.com/package/@neelamkhan21/ui) — my own
 component library, built as a separate project and consumed here as a real
 dependency.
-**Infrastructure** — Docker Compose locally, k3s on a single EC2 instance for
-deployment, with Postgres and Redis running in-cluster.
+**Infrastructure** — Docker Compose locally; k3s in deployment, with Postgres
+and Redis in-cluster, on either an Oracle Always Free VM or an on-demand EC2
+instance.
 
 ## Running it locally
 
@@ -96,38 +97,46 @@ The headlines, all from the current dataset (~1,000–1,800 PRs per repo):
 
 ## Deployment
 
-Deployed to AWS on **single-node k3s**, and deliberately **ephemeral**: the whole
-stack is created when it's needed and destroyed afterwards.
+Runs on **single-node k3s**, with everything — Postgres, Redis, the API, the
+Celery worker and beat, and nginx serving the frontend — inside the cluster
+behind one entry point.
+
+Two supported targets, because the hosting decision turned out to be the
+interesting part:
 
 ```bash
-cp deploy/deploy.env.example deploy/deploy.env   # Docker Hub user, optional hostname
-task deploy:images     # build both images for linux/amd64, push to Docker Hub
-task deploy:up         # instance + k3s + the whole stack, ~5 minutes
-task deploy:status     # is anything running (and therefore billing)?
-task deploy:down       # destroy it all
+cp deploy/deploy.env.example deploy/deploy.env   # Docker Hub user, host, optional hostname
+cp k8s/secret.example.yaml k8s/secret.yaml       # DB password, GitHub token
+task deploy:images                               # multi-arch: arm64 + amd64
+
+task deploy:remote     # deploy to a host you already have — free, always on
+task deploy:up         # or: create a throwaway AWS instance, ~$0.03/hour
+task deploy:down       # and destroy it
 ```
 
+**Why not just always-on AWS.** This account was created after July 2025, so
+it's on the credit-based free plan rather than the classic 12-month free tier —
+there is no 750-free-hours allowance for EC2, RDS or ElastiCache. Managed
+Postgres and Redis running always-on would have been about **$39/month**.
+Moving both into the cluster took that to ~$11/month, and the remaining cost is
+simply the machine.
+
+So there are two ways to pay nothing. `task deploy:up` creates an AWS instance
+on demand and `task deploy:down` destroys it, which costs about 3p an hour and
+nothing in between. `task deploy:remote` deploys to a machine that is already
+free and always on — an Oracle Cloud Always Free VM (4 ARM cores, 24 GB, free
+indefinitely) — which is the same manifests, the same k3s, and a permanently
+live URL.
+
 Set a free [DuckDNS](https://www.duckdns.org) subdomain and token in
-`deploy/deploy.env` and the stack comes up at
-`https://<subdomain>.duckdns.org` with a real Let's Encrypt certificate,
-obtained and renewed by Caddy in the cluster. `deploy/up.sh` repoints the DNS
-record at each new instance, so the address survives teardowns — which is what
-makes OAuth workable, since GitHub and Google both need a callback URL that
-doesn't move. Without it the stack is reachable at `http://<ip>:30080` and
-email-and-password sign-in still works.
+`deploy/deploy.env` and either target comes up at
+`https://<subdomain>.duckdns.org` with a Let's Encrypt certificate obtained and
+renewed by Caddy in the cluster. That is what makes OAuth work: GitHub and
+Google both need a callback URL that doesn't move.
 
-Caddy's certificates are archived on teardown and restored on the next deploy.
-That isn't an optimisation: Let's Encrypt issues at most five identical
-certificates per week, so without it five teardowns would lock the hostname out
-until the window rolled.
-
-This is a cost decision, made after checking rather than assuming. This AWS
-account was created after July 2025, so it's on the credit-based free plan
-rather than the classic 12-month free tier — there is no 750-free-hours
-allowance for EC2, RDS or ElastiCache. Running managed Postgres and Redis
-always-on would have been roughly **$39/month**. Moving both into the cluster
-and running the instance only while it's in use brings that to a few pennies an
-hour, with nothing billing between demos.
+Images are built for **arm64 and amd64** together, and `deploy:remote` checks
+the host's architecture before deploying — a mismatch pulls cleanly and then
+dies with `exec format error`, which is a miserable thing to debug in a pod.
 
 Two honest limitations, both deliberate:
 
@@ -135,11 +144,11 @@ Two honest limitations, both deliberate:
   operating a cluster — StatefulSets, PVCs, Jobs, probes, rolling restarts,
   autoscaling — not multi-node scheduling.
 - **In-cluster Postgres** means no managed backups, point-in-time restore or
-  failover. Fair for a dashboard whose entire dataset can be rebuilt by
-  re-running the sync; not fair for anything holding real users' data.
+  failover. Fair for a dashboard whose dataset can be rebuilt by re-running the
+  sync; not fair for anything holding real users' data.
 
-`DEPLOY_GUIDE.md` carries the reasoning, including the managed-services variant
-(RDS, ElastiCache, CloudFront) if the cost calculus ever changes.
+`DEPLOY_GUIDE.md` carries the reasoning, including the managed-services
+variant (RDS, ElastiCache, CloudFront) if the cost calculus ever changes.
 
 ## Known gaps
 
