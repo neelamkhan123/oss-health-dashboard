@@ -2,7 +2,6 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import dashboard, auth
 from app.services.auth import get_current_user
-from app.services import query_debug  # noqa: F401 — import registers the SQLAlchemy event listeners
 from app.config import settings
 
 app = FastAPI(title="OSS Health Dashboard API")
@@ -29,17 +28,3 @@ app.include_router(
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-# Part 10.3 scaffolding: query_debug's counters live in that module's process
-# memory, so they're only readable from inside the same running server — this
-# endpoint is that window. Not meant to ship; delete once the before/after
-# numbers are recorded in PERFORMANCE.md.
-@app.get("/debug/query-count")
-def debug_query_count():
-    return query_debug.query_count
-
-@app.post("/debug/query-count/reset")
-def debug_query_count_reset():
-    query_debug.query_count["count"] = 0
-    query_debug.query_count["total_time"] = 0.0
-    return query_debug.query_count

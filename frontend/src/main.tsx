@@ -2,7 +2,7 @@ import { StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Toaster } from "@neelamkhan21/ui";
-import { AppShell } from "./layout/AppShell";
+import { ProtectedLayout } from "./layout/ProtectedLayout";
 import { RequireAuth } from "./components/RequireAuth.tsx";
 import {
   LazyOverview,
@@ -11,27 +11,9 @@ import {
   LazyLogin,
 } from "./pages/lazy";
 import { AuthProvider } from "./lib/authContext";
-import { DateRangeProvider } from "./lib/dateRangeContext";
-import { SyncProvider } from "./lib/syncContext";
 import { ThemeProvider } from "./lib/themeContext";
-import { TrackedReposProvider } from "./lib/trackedReposContext";
 import "./index.css";
 import { reportWebVitals } from "./reportWebVitals";
-
-/** The providers that fetch authenticated data, plus the shell they feed.
- *  Kept behind RequireAuth so none of them mount — and none of their
- *  requests fire — until there's a session for those requests to use. */
-function ProtectedLayout() {
-  return (
-    <DateRangeProvider>
-      <SyncProvider>
-        <TrackedReposProvider>
-          <AppShell />
-        </TrackedReposProvider>
-      </SyncProvider>
-    </DateRangeProvider>
-  );
-}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
