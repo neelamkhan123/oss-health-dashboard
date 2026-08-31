@@ -17,6 +17,72 @@ architecture it described, so Part 18 is the section that changed most.*
 
 ---
 
+## SUPERSEDED, 2026-08-31 — this account has no classic free tier
+
+Checked rather than assumed, and the answer changes the architecture below.
+
+`aws freetier get-free-tier-usage` returns **only `Always Free` entries** for
+account 588301175097 — no `12 Month Free Tier` line items at all — and the
+account's IAM users were created 2026-08-23, putting the account well after the
+July 2025 cutover. **This account is on the credit-based free plan.** There is
+no 750-hours-per-month allowance for EC2, RDS or ElastiCache; those draw down
+signup credits and then bill at full price.
+
+What the architecture in Parts 17–19 would actually have cost, always-on in
+eu-west-2:
+
+| | Monthly |
+|---|---|
+| RDS db.t4g.micro + 20 GB | ~$15 |
+| ElastiCache cache.t3.micro | ~$13 |
+| EC2 t3.micro + 30 GB gp3 | ~$11 |
+| **Total** | **~$39** |
+
+### What replaced it
+
+Two changes, and the project is free again:
+
+1. **Postgres and Redis moved into the cluster** (`k8s/postgres.yaml`, a
+   StatefulSet with a PersistentVolumeClaim, and `k8s/redis.yaml`). That
+   removes the two most expensive line items, and it is a better Kubernetes
+   exercise than a managed endpoint in a connection string. The cost is real
+   and worth naming: no managed backups, no point-in-time restore, no failover.
+2. **The deployment became ephemeral** (`deploy/up.sh`, `deploy/down.sh`,
+   `task deploy:up` / `deploy:down`). The stack is created when it's needed and
+   destroyed afterwards. At roughly $0.03/hour for a t3.small, a year of
+   interview demos costs less than a coffee.
+
+A third change falls out of the second: because the public IP changes on every
+deploy, **CloudFront is gone too**. A distribution's origin has to be stable,
+and updating it per-deploy would add ten minutes to a five-minute startup.
+Instead `k8s/web.yaml` runs nginx inside the cluster, serving the built frontend
+and proxying `/api` to the API Service. That gets the same-origin property
+Part 18.0 was reaching for — first-party cookie, no CORS, no mixed content —
+without any CDN at all, and it's *simpler* than the two-origin distribution.
+
+Note that the instance can now be bigger, not smaller. `deploy/config.sh`
+defaults to **t3.small** rather than t3.micro: the node hosts Postgres and Redis
+as well as the app pods, and once you are paying by the hour for something you
+run occasionally, 2 GB of RAM costs about a penny more per hour than 1 GB.
+
+### What this leaves open
+
+**OAuth needs a stable callback URL**, and an ephemeral public IP is not one.
+Email and password sign-in works on every deploy; GitHub and Google do not,
+until there's a fixed hostname. The cheap fix is a free DuckDNS subdomain
+updated on each `up`, plus Caddy in the cluster for automatic Let's Encrypt
+certificates — which would also get you HTTPS. Not built yet.
+
+### Parts 17–19 below are still accurate
+
+They describe the managed-services deployment: RDS, ElastiCache, EC2, and the
+two-origin CloudFront distribution. That is the right architecture if this ever
+has real users, or on an account that does have the classic free tier — the
+reasoning in 18.0 about cookies and origins is unchanged and still worth
+reading. It is simply not what this project deploys today.
+
+---
+
 ## PART 15 — Final measurement pass & README
 
 > **Status: done, 2026-08-31.** Everything in this part has been carried out:

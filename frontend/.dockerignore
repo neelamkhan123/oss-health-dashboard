@@ -1,0 +1,6 @@
+node_modules
+dist
+.lighthouseci
+.env.local
+.env.production
+.env.production.local

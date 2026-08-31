@@ -17,7 +17,8 @@ and beat.
 [`@neelamkhan21/ui`](https://www.npmjs.com/package/@neelamkhan21/ui) — my own
 component library, built as a separate project and consumed here as a real
 dependency.
-**Infrastructure** — Docker Compose locally, k3s on EC2 in production.
+**Infrastructure** — Docker Compose locally, k3s on a single EC2 instance for
+deployment, with Postgres and Redis running in-cluster.
 
 ## Running it locally
 
@@ -39,21 +40,25 @@ there's nothing to display.
 ## Architecture
 
 ```
-browser ──▶ CloudFront ──┬──▶ S3            static frontend
-                         └──▶ EC2 (k3s)     /api/* → FastAPI pod
-                                  │
-                                  ├──▶ RDS Postgres
-                                  └──▶ ElastiCache Redis
-                                             ▲
-              beat (every 15 min) ──▶ worker ─┘ ──▶ GitHub API
+browser ──▶ EC2 instance ──▶ k3s
+                              │
+                              ├── web    nginx: serves the SPA, proxies /api
+                              ├── api    FastAPI
+                              ├── worker Celery ──▶ GitHub API
+                              ├── beat   Celery scheduler, every 15 min
+                              ├── redis  cache + session store + broker
+                              └── postgres (StatefulSet + PVC)
 ```
 
-The API, the Celery worker and Celery beat are three separate Deployments
-running the same image with different commands, so each scales and restarts
-independently. Beat is pinned to one replica — a second one would double-fire
-every scheduled sync.
+Everything runs inside the cluster, behind one entry point. nginx serves the
+built frontend and proxies `/api` to the API Service, which means the browser
+sees a single origin — no CORS, no mixed content, and the session cookie stays
+first-party. It also means nothing in the build knows the deployment's address,
+which is what lets the whole stack be destroyed and recreated at a different IP.
 
-Redis does three jobs: response cache, Celery broker, and session store.
+The API, worker and beat are three separate Deployments running the same image
+with different commands, so each scales and restarts independently. Beat is
+pinned to one replica — a second would double-fire every scheduled sync.
 
 ## Authentication
 
@@ -90,21 +95,36 @@ The headlines, all from the current dataset (~1,000–1,800 PRs per repo):
 
 ## Deployment
 
-Deployed to AWS on **single-node k3s** running on one EC2 instance, with RDS
-and ElastiCache behind it and the frontend on S3 + CloudFront. Full runbook
-in **[DEPLOY_GUIDE.md](DEPLOY_GUIDE.md)**.
+Deployed to AWS on **single-node k3s**, and deliberately **ephemeral**: the whole
+stack is created when it's needed and destroyed afterwards.
 
-The honest limitation, up front: one node means this demonstrates writing
-real Kubernetes manifests and operating a real cluster — Deployments,
-Services, Jobs, probes, rolling restarts, `kubectl scale`, an HPA — but not
-multi-node scheduling. That was a cost decision: EKS is ~$73/month for the
-control plane alone and ECS Fargate has no free tier, while k3s is software
-running on an instance that's already free. Managed Kubernetes is the natural
-next step, taken deliberately as a paid upgrade rather than by default.
+```bash
+export DOCKERHUB_USER=your-user
+task deploy:images     # build both images for linux/amd64, push to Docker Hub
+task deploy:up         # instance + k3s + the whole stack, ~5 minutes
+task deploy:status     # is anything running (and therefore billing)?
+task deploy:down       # destroy it all
+```
 
-The frontend and API are served from one CloudFront distribution with two
-origins, which keeps the session cookie first-party and avoids both mixed
-content and third-party-cookie problems.
+This is a cost decision, made after checking rather than assuming. This AWS
+account was created after July 2025, so it's on the credit-based free plan
+rather than the classic 12-month free tier — there is no 750-free-hours
+allowance for EC2, RDS or ElastiCache. Running managed Postgres and Redis
+always-on would have been roughly **$39/month**. Moving both into the cluster
+and running the instance only while it's in use brings that to a few pennies an
+hour, with nothing billing between demos.
+
+Two honest limitations, both deliberate:
+
+- **Single node**, so this demonstrates writing Kubernetes manifests and
+  operating a cluster — StatefulSets, PVCs, Jobs, probes, rolling restarts,
+  autoscaling — not multi-node scheduling.
+- **In-cluster Postgres** means no managed backups, point-in-time restore or
+  failover. Fair for a dashboard whose entire dataset can be rebuilt by
+  re-running the sync; not fair for anything holding real users' data.
+
+`DEPLOY_GUIDE.md` carries the reasoning, including the managed-services variant
+(RDS, ElastiCache, CloudFront) if the cost calculus ever changes.
 
 ## Known gaps
 
@@ -127,5 +147,8 @@ content and third-party-cookie problems.
   policy decision nobody has defined thresholds for.
 - **The Watch button needs the `repo` OAuth scope**, not just `public_repo`;
   with a narrower token it surfaces GitHub's 403 rather than working.
+- **OAuth sign-in needs a stable callback URL**, which an ephemeral public IP
+  isn't. Email and password work on every deploy; GitHub and Google sign-in
+  need a fixed hostname in front of the instance first.
 - **Login page contrast**: one 12px slate-400-on-white label sits at 2.63:1,
   below the 4.5:1 threshold.

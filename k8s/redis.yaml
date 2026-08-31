@@ -1,0 +1,49 @@
+# Redis inside the cluster instead of ElastiCache (~$13/month otherwise).
+#
+# Redis does three jobs here: response cache, Celery broker, and session
+# store. That last one is why there is no eviction policy set — the default
+# is noeviction, and allkeys-lru would throw away live logins and queued
+# sync jobs the moment memory got tight.
+#
+# No PersistentVolumeClaim on purpose: everything in here is either
+# rebuildable (cache), re-queueable (Celery), or a session that can be
+# re-established by signing in again. A restart is cheap; a stale volume
+# holding half a job queue is not.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  selector: { app: redis }
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          # maxmemory well under the limit so Redis pushes back with an
+          # error rather than letting the kernel OOM-kill the pod.
+          args: ["redis-server", "--maxmemory", "96mb", "--save", ""]
+          ports:
+            - containerPort: 6379
+          resources:
+            requests: { memory: "48Mi", cpu: "50m" }
+            limits: { memory: "160Mi" }
+          readinessProbe:
+            exec: { command: ["redis-cli", "ping"] }
+            initialDelaySeconds: 3
+            periodSeconds: 10
