@@ -42,6 +42,7 @@ there's nothing to display.
 ```
 browser ──▶ EC2 instance ──▶ k3s
                               │
+                              ├── caddy  TLS, Let's Encrypt (when a hostname is set)
                               ├── web    nginx: serves the SPA, proxies /api
                               ├── api    FastAPI
                               ├── worker Celery ──▶ GitHub API
@@ -99,12 +100,26 @@ Deployed to AWS on **single-node k3s**, and deliberately **ephemeral**: the whol
 stack is created when it's needed and destroyed afterwards.
 
 ```bash
-export DOCKERHUB_USER=your-user
+cp deploy/deploy.env.example deploy/deploy.env   # Docker Hub user, optional hostname
 task deploy:images     # build both images for linux/amd64, push to Docker Hub
 task deploy:up         # instance + k3s + the whole stack, ~5 minutes
 task deploy:status     # is anything running (and therefore billing)?
 task deploy:down       # destroy it all
 ```
+
+Set a free [DuckDNS](https://www.duckdns.org) subdomain and token in
+`deploy/deploy.env` and the stack comes up at
+`https://<subdomain>.duckdns.org` with a real Let's Encrypt certificate,
+obtained and renewed by Caddy in the cluster. `deploy/up.sh` repoints the DNS
+record at each new instance, so the address survives teardowns — which is what
+makes OAuth workable, since GitHub and Google both need a callback URL that
+doesn't move. Without it the stack is reachable at `http://<ip>:30080` and
+email-and-password sign-in still works.
+
+Caddy's certificates are archived on teardown and restored on the next deploy.
+That isn't an optimisation: Let's Encrypt issues at most five identical
+certificates per week, so without it five teardowns would lock the hostname out
+until the window rolled.
 
 This is a cost decision, made after checking rather than assuming. This AWS
 account was created after July 2025, so it's on the credit-based free plan
@@ -147,8 +162,8 @@ Two honest limitations, both deliberate:
   policy decision nobody has defined thresholds for.
 - **The Watch button needs the `repo` OAuth scope**, not just `public_repo`;
   with a narrower token it surfaces GitHub's 403 rather than working.
-- **OAuth sign-in needs a stable callback URL**, which an ephemeral public IP
-  isn't. Email and password work on every deploy; GitHub and Google sign-in
-  need a fixed hostname in front of the instance first.
+- **OAuth needs the DuckDNS hostname configured.** With it, GitHub and Google
+  sign-in work like any other deployment. Without it the stack runs on a bare
+  IP that changes each deploy, and only email-and-password sign-in works.
 - **Login page contrast**: one 12px slate-400-on-white label sits at 2.63:1,
   below the 4.5:1 threshold.

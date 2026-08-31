@@ -13,6 +13,24 @@ ID=$(instance_id)
 if [ "$ID" = "None" ] || [ -z "$ID" ]; then
   ok "no running instance"
 else
+  # Take the certificates with us. Let's Encrypt issues at most five
+  # identical certificates per week; without this, five teardowns would be
+  # enough to lock the hostname out until the window rolls.
+  if use_https; then
+    IP=$(instance_ip "$ID")
+    say "saving certificates"
+    if ssh_node "$IP" 'export KUBECONFIG=~/.kube/config
+POD=$(kubectl get pod -l app=caddy -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
+[ -n "$POD" ] && kubectl exec "$POD" -- tar czf - -C /data . 2>/dev/null' > "$CADDY_DATA_ARCHIVE".tmp 2>/dev/null \
+       && [ -s "$CADDY_DATA_ARCHIVE".tmp ]; then
+      mv "$CADDY_DATA_ARCHIVE".tmp "$CADDY_DATA_ARCHIVE"
+      ok "certificates saved to $CADDY_DATA_ARCHIVE"
+    else
+      rm -f "$CADDY_DATA_ARCHIVE".tmp
+      warn "could not save certificates — the next deploy will request a new one"
+    fi
+  fi
+
   say "terminating $ID"
   aws ec2 terminate-instances --instance-ids "$ID" >/dev/null
   aws ec2 wait instance-terminated --instance-ids "$ID"

@@ -4,8 +4,12 @@ venv
 .env
 .env.local
 .env.*.local
-# Filled-in copy of k8s/secret.example.yaml — real RDS/OAuth credentials.
+# Filled-in copy of k8s/secret.example.yaml — real database and OAuth credentials.
 k8s/secret.yaml
+# Deploy-time settings (Docker Hub user, DuckDNS token).
+deploy/deploy.env
+# Caddy's certificates and ACME account key, carried between deployments.
+deploy/.caddy-data.tar.gz
 
 # Node
 node_modules

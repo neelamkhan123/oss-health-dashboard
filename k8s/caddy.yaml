@@ -1,0 +1,94 @@
+# TLS termination and a stable public name, in front of the web pod.
+#
+# Caddy obtains and renews a Let's Encrypt certificate on its own — no cron,
+# no certbot, no manual renewal. It answers the HTTP-01 challenge on :80,
+# which is why both ports are published and why DNS has to point here
+# *before* this is applied (deploy/up.sh does that ordering).
+#
+# Only applied when a DuckDNS subdomain is configured. Without one the stack
+# is reachable at http://<ip>:30080 and this file is skipped entirely.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: caddy-config
+data:
+  Caddyfile: |
+    {
+        email REPLACE_ME_ACME_EMAIL
+    }
+
+    REPLACE_ME_DOMAIN {
+        encode zstd gzip
+
+        # web-service fronts nginx, which serves the SPA and proxies /api to
+        # the API. Caddy doesn't need to know about that split — it hands the
+        # whole origin over, which keeps everything same-origin behind TLS.
+        reverse_proxy web-service:80
+    }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: caddy-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests: { storage: 1Gi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caddy
+  labels: { app: caddy }
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: the certificate volume is ReadWriteOnce, so
+  # a second pod could never attach it while the first still holds it.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: caddy }
+  template:
+    metadata:
+      labels: { app: caddy }
+    spec:
+      containers:
+        - name: caddy
+          image: caddy:2-alpine
+          ports:
+            - { containerPort: 80,  name: http }
+            - { containerPort: 443, name: https }
+          volumeMounts:
+            - { name: config, mountPath: /etc/caddy }
+            # Certificates and ACME account keys live here. Losing it means
+            # re-issuing, and Let's Encrypt allows only 5 identical
+            # certificates per week — see deploy/up.sh, which carries this
+            # directory between deployments for exactly that reason.
+            - { name: data, mountPath: /data }
+          resources:
+            requests: { memory: "64Mi", cpu: "50m" }
+            limits: { memory: "192Mi" }
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap: { name: caddy-config }
+        - name: data
+          persistentVolumeClaim: { claimName: caddy-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: caddy-service
+spec:
+  # LoadBalancer on k3s means the bundled servicelb binds ports 80 and 443
+  # on the node itself — the standard ports, which ACME's HTTP-01 challenge
+  # requires and a NodePort (30000+) could not provide.
+  type: LoadBalancer
+  selector: { app: caddy }
+  ports:
+    - { name: http,  port: 80,  targetPort: 80 }
+    - { name: https, port: 443, targetPort: 443 }

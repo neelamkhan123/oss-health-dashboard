@@ -39,6 +39,14 @@ aws ec2 authorize-security-group-ingress --group-id "$SG" \
   --protocol tcp --port 22 --cidr "${MY_IP}/32" >/dev/null 2>&1 || true
 aws ec2 authorize-security-group-ingress --group-id "$SG" \
   --protocol tcp --port "$NODE_PORT" --cidr 0.0.0.0/0 >/dev/null 2>&1 || true
+if use_https; then
+  # 80 is not optional even though the site is HTTPS: it is where ACME's
+  # HTTP-01 challenge arrives, and where Caddy redirects visitors from.
+  for port in 80 443; do
+    aws ec2 authorize-security-group-ingress --group-id "$SG" \
+      --protocol tcp --port "$port" --cidr 0.0.0.0/0 >/dev/null 2>&1 || true
+  done
+fi
 ok "security group $SG (ssh from ${MY_IP}/32, app on :$NODE_PORT)"
 
 # ── instance ────────────────────────────────────────────────────────────
@@ -81,6 +89,14 @@ for i in $(seq 1 40); do
   sleep 5
 done
 
+# ── DNS, before any certificate is requested ────────────────────────────
+if use_https; then
+  say "pointing ${DUCKDNS_SUBDOMAIN}.duckdns.org at $IP"
+  RESP=$(curl -fsS "https://www.duckdns.org/update?domains=${DUCKDNS_SUBDOMAIN}&token=${DUCKDNS_TOKEN}&ip=${IP}" || echo "KO")
+  [ "$RESP" = "OK" ] || die "DuckDNS update failed (${RESP}) — check DUCKDNS_SUBDOMAIN and DUCKDNS_TOKEN"
+  ok "dns updated"
+fi
+
 say "waiting for k3s"
 for i in $(seq 1 60); do
   ssh_node "$IP" "test -f /tmp/k3s-ready" 2>/dev/null && break
@@ -95,7 +111,17 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 cp k8s/*.yaml "$TMP/"
 sed -i.bak "s|REPLACE_ME_DOCKERHUB_USER/oss-dashboard-api|${API_IMAGE%:*}|g" "$TMP"/*.yaml
 sed -i.bak "s|REPLACE_ME_DOCKERHUB_USER/oss-dashboard-web|${WEB_IMAGE%:*}|g" "$TMP"/*.yaml
-sed -i.bak "s|http://REPLACE_ME_HOST|http://${IP}:${NODE_PORT}|g" "$TMP"/configmap.yaml
+HOST=$(public_host "$IP")
+sed -i.bak "s|http://REPLACE_ME_HOST|${HOST}|g" "$TMP"/configmap.yaml
+if use_https; then
+  # A Secure cookie is only sent over HTTPS, so this flips with the scheme —
+  # setting it wrongly in either direction silently breaks every login.
+  sed -i.bak "s|COOKIE_SECURE: \"false\"|COOKIE_SECURE: \"true\"|" "$TMP"/configmap.yaml
+  sed -i.bak "s|REPLACE_ME_DOMAIN|${DUCKDNS_SUBDOMAIN}.duckdns.org|" "$TMP"/caddy.yaml
+  sed -i.bak "s|REPLACE_ME_ACME_EMAIL|${ACME_EMAIL:-admin@${DUCKDNS_SUBDOMAIN}.duckdns.org}|" "$TMP"/caddy.yaml
+else
+  rm -f "$TMP"/caddy.yaml
+fi
 rm -f "$TMP"/*.bak
 scp -q -i "$KEY_FILE" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     -o LogLevel=ERROR "$TMP"/*.yaml "ubuntu@${IP}:~/"
@@ -120,7 +146,32 @@ kubectl apply -f deployment.yaml -f web.yaml
 kubectl rollout status deployment/api --timeout=180s
 kubectl rollout status deployment/web --timeout=120s'
 
-URL="http://${IP}:${NODE_PORT}"
+if use_https; then
+  # Put yesterday's certificates back before Caddy starts, so it renews an
+  # existing one instead of asking Let's Encrypt for a new one every deploy.
+  if [ -f "$CADDY_DATA_ARCHIVE" ]; then
+    say "restoring saved certificates"
+    scp -q -i "$KEY_FILE" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR "$CADDY_DATA_ARCHIVE" "ubuntu@${IP}:/tmp/caddy-data.tar.gz"
+  fi
+
+  say "starting caddy (this obtains the certificate)"
+  ssh_node "$IP" 'export KUBECONFIG=~/.kube/config
+kubectl apply -f caddy.yaml
+kubectl rollout status deployment/caddy --timeout=180s
+if [ -f /tmp/caddy-data.tar.gz ]; then
+  POD=$(kubectl get pod -l app=caddy -o jsonpath="{.items[0].metadata.name}")
+  kubectl exec "$POD" -- tar xzf - -C /data < /tmp/caddy-data.tar.gz 2>/dev/null     && kubectl rollout restart deployment/caddy >/dev/null     && kubectl rollout status deployment/caddy --timeout=120s
+fi'
+  say "waiting for the certificate"
+  for i in $(seq 1 30); do
+    curl -fsS "https://${DUCKDNS_SUBDOMAIN}.duckdns.org/health" >/dev/null 2>&1 && break
+    [ "$i" = 30 ] && warn "no certificate yet — kubectl logs deployment/caddy on the instance will say why"
+    sleep 5
+  done
+fi
+
+URL=$(public_host "$IP")
 say "checking $URL/health"
 for i in $(seq 1 20); do
   curl -fsS "$URL/health" >/dev/null 2>&1 && break
@@ -132,5 +183,11 @@ echo
 ok "up: $URL"
 echo "   ssh   ssh -i $KEY_FILE ubuntu@$IP"
 echo "   pods  ssh -i $KEY_FILE ubuntu@$IP 'kubectl get pods'"
+if ! use_https; then
+  echo
+  echo "   No DUCKDNS_SUBDOMAIN set, so this is a bare IP over plain HTTP and"
+  echo "   the address changes on every deploy. OAuth sign-in needs a stable"
+  echo "   callback URL — see deploy/deploy.env.example to turn it on."
+fi
 echo
 warn "this instance bills by the hour — run deploy/down.sh when you are finished"
