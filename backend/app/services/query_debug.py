@@ -1,3 +1,9 @@
+# NOTE: not currently imported by anything. main.py registered these
+# listeners while Part 10-15 measurements were being taken, and that
+# import was removed along with the /debug endpoints once the numbers
+# were recorded in PERFORMANCE.md. Kept because re-enabling it is one
+# import line, and PERFORMANCE.md documents the technique.
+
 # backend/app/services/query_debug.py
 from sqlalchemy import event
 from sqlalchemy.engine import Engine

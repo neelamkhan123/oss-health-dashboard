@@ -1,5 +1,7 @@
 # OSS Health Dashboard
 
+**Live: [oss-dashboard.duckdns.org](https://oss-dashboard.duckdns.org)**
+
 A dashboard for tracking the health of open-source repositories. It syncs
 pull requests, issues, commits and contributors from the GitHub API on a
 schedule, then reports the things a maintainer actually wants to know: how
@@ -43,7 +45,7 @@ there's nothing to display.
 ```
 browser ──▶ EC2 instance ──▶ k3s
                               │
-                              ├── caddy  TLS, Let's Encrypt (when a hostname is set)
+                              ├── caddy  TLS, automatic certificate renewal
                               ├── web    nginx: serves the SPA, proxies /api
                               ├── api    FastAPI
                               ├── worker Celery ──▶ GitHub API
@@ -97,46 +99,50 @@ The headlines, all from the current dataset (~1,000–1,800 PRs per repo):
 
 ## Deployment
 
-Runs on **single-node k3s**, with everything — Postgres, Redis, the API, the
-Celery worker and beat, and nginx serving the frontend — inside the cluster
-behind one entry point.
-
-Two supported targets, because the hosting decision turned out to be the
-interesting part:
+Live on **single-node k3s**, on an Oracle Cloud Always Free VM (Ampere ARM,
+free indefinitely). Everything runs inside the cluster — Postgres as a
+StatefulSet, Redis, the API, the Celery worker and beat, nginx serving the
+frontend, and Caddy terminating TLS:
 
 ```bash
-cp deploy/deploy.env.example deploy/deploy.env   # Docker Hub user, host, optional hostname
-cp k8s/secret.example.yaml k8s/secret.yaml       # DB password, GitHub token
+cp deploy/deploy.env.example deploy/deploy.env   # Docker Hub user, host, DuckDNS
+cp k8s/secret.example.yaml k8s/secret.yaml       # DB password, GitHub token, OAuth
 task deploy:images                               # multi-arch: arm64 + amd64
-
-task deploy:remote     # deploy to a host you already have — free, always on
-task deploy:up         # or: create a throwaway AWS instance, ~$0.03/hour
-task deploy:down       # and destroy it
+task deploy:remote                               # ~5 minutes to live
 ```
 
-**Why not just always-on AWS.** This account was created after July 2025, so
-it's on the credit-based free plan rather than the classic 12-month free tier —
-there is no 750-free-hours allowance for EC2, RDS or ElastiCache. Managed
-Postgres and Redis running always-on would have been about **$39/month**.
-Moving both into the cluster took that to ~$11/month, and the remaining cost is
-simply the machine.
+`task deploy:up` / `deploy:down` deploy the same manifests to a throwaway AWS
+instance instead, for about 3p an hour.
 
-So there are two ways to pay nothing. `task deploy:up` creates an AWS instance
-on demand and `task deploy:down` destroys it, which costs about 3p an hour and
-nothing in between. `task deploy:remote` deploys to a machine that is already
-free and always on — an Oracle Cloud Always Free VM (4 ARM cores, 24 GB, free
-indefinitely) — which is the same manifests, the same k3s, and a permanently
-live URL.
+**Why not AWS always-on.** This AWS account postdates July 2025, so it's on the
+credit-based free plan — there is no 750-free-hours allowance for EC2, RDS or
+ElastiCache. Managed Postgres and Redis running continuously would have been
+about **$39/month**. Moving both into the cluster took it to ~$11/month, and
+moving the whole thing to Oracle's Always Free tier took it to **£0**, with a
+permanently live URL rather than one that only exists during a demo.
 
-Set a free [DuckDNS](https://www.duckdns.org) subdomain and token in
-`deploy/deploy.env` and either target comes up at
-`https://<subdomain>.duckdns.org` with a Let's Encrypt certificate obtained and
-renewed by Caddy in the cluster. That is what makes OAuth work: GitHub and
-Google both need a callback URL that doesn't move.
+HTTPS is a free DuckDNS subdomain plus Caddy obtaining and renewing a
+certificate in-cluster, which is also what makes GitHub and Google sign-in
+possible — both providers need a callback URL that doesn't move, and Google
+refuses non-HTTPS redirect URIs outright.
 
-Images are built for **arm64 and amd64** together, and `deploy:remote` checks
-the host's architecture before deploying — a mismatch pulls cleanly and then
-dies with `exec format error`, which is a miserable thing to debug in a pod.
+### Four bugs that only a real deployment could find
+
+Every one of these passed local tests, CI, and a stubbed dry run:
+
+1. **Empty route table.** The VCN had an internet gateway but no route to it, so
+   traffic reached Oracle's edge and stopped.
+2. **`FORWARD` chain rejecting everything.** Oracle's Ubuntu image blocks the
+   chain k3s uses for all pod-to-pod and service traffic. `prepare_host_firewall`
+   in `deploy/config.sh` now handles it.
+3. **nginx ignores DNS search domains.** `api-service` resolved from a shell
+   inside the pod and failed inside nginx, producing a 502 that looked like the
+   API was down while it answered fine. Fixed with the fully-qualified name.
+4. **A TLS deadlock in the readiness probe.** An HTTP probe on `/` redirects to
+   HTTPS, which cannot succeed before a certificate exists — so the pod never
+   went ready, its Service had no endpoints, port 80 refused connections, and
+   the ACME challenge that would have issued the certificate could never
+   arrive. A TCP probe breaks the cycle.
 
 Two honest limitations, both deliberate:
 
@@ -147,32 +153,32 @@ Two honest limitations, both deliberate:
   failover. Fair for a dashboard whose dataset can be rebuilt by re-running the
   sync; not fair for anything holding real users' data.
 
-`DEPLOY_GUIDE.md` carries the reasoning, including the managed-services
-variant (RDS, ElastiCache, CloudFront) if the cost calculus ever changes.
+`DEPLOY_GUIDE.md` carries the reasoning, including the managed-services variant
+(RDS, ElastiCache, CloudFront) if the cost calculus ever changes.
 
 ## Known gaps
 
 - **`/overview` is an N+1.** 35 queries per tracked repo, plus 48 more for
   sparklines that issue one query per data point. A 10-repo user costs 410
-  queries on a cold request. The cache hides it; it isn't fixed.
+  queries on a cold request. The cache hides it; it isn't fixed. This is the
+  single highest-value thing left to do.
 - **`total_prs` means different things** in `/stats-naive` (all PRs) and
   `/stats` (merged only).
-- **One backend test fails.** `test_overview_endpoint_responds` predates the
-  auth guard and asserts 200 where the endpoint now correctly returns 401.
-  Fixing it is the first step of the CI work in `DEPLOY_GUIDE.md` Part 16.
-- **CI doesn't exist yet** — `.github/workflows/` is unwritten; the workflow
-  is specified but not committed.
-- **`@neelamkhan21/ui` resolves to a local symlink** in this working tree
-  (v1.2.1) while `package.json` declares `^1.1.0` from npm, so CI and
-  production build against different code than development does.
-- **Sparse mock data.** `lib/mockData.ts` still backs a few fields with no
-  schema equivalent yet — per-contributor PR/review counts, time-to-first-
-  response trends, and the "Healthy"/"Backlog growing" status, which is a
-  policy decision nobody has defined thresholds for.
+- **Thin test coverage.** Four backend smoke tests cover health, the auth
+  guard, and the overview shape. There is no frontend test framework, and
+  nothing exercises the sync pipeline — which is where the interesting logic
+  lives.
+- **`@neelamkhan21/ui` is a local symlink** in this working tree, so
+  development builds against a checkout while CI and production build against
+  the published package. `resolve.dedupe` makes that safe; it doesn't make the
+  two environments identical.
+- **Some metrics still have no schema behind them** — per-contributor PR and
+  review counts, time-to-first-response trends, and the "Healthy" / "Backlog
+  growing" status, which is a policy decision nobody has defined thresholds
+  for.
 - **The Watch button needs the `repo` OAuth scope**, not just `public_repo`;
   with a narrower token it surfaces GitHub's 403 rather than working.
-- **OAuth needs the DuckDNS hostname configured.** With it, GitHub and Google
-  sign-in work like any other deployment. Without it the stack runs on a bare
-  IP that changes each deploy, and only email-and-password sign-in works.
 - **Login page contrast**: one 12px slate-400-on-white label sits at 2.63:1,
-  below the 4.5:1 threshold.
+  below the 4.5:1 threshold — the one accessibility failure Lighthouse flags.
+- **Backups.** Nothing backs up the in-cluster Postgres volume. Losing the VM
+  means re-syncing from GitHub, which works but loses every account.
