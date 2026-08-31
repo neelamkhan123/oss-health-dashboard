@@ -1,0 +1,81 @@
+# Postgres inside the cluster instead of RDS.
+#
+# Why: RDS db.t4g.micro is ~$15/month and this account is on the
+# credit-based free plan, so there is no 750-free-hours allowance to spend.
+# Running it here costs nothing beyond the instance already running, and a
+# StatefulSet with a PersistentVolumeClaim is a better Kubernetes exercise
+# than a managed endpoint in a connection string.
+#
+# What you give up, honestly: automated backups, point-in-time restore,
+# failover, and one-click version upgrades. For a portfolio dashboard whose
+# entire dataset can be rebuilt by re-running the sync, that is a fair
+# trade. It would not be for anything with real users' data.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  # Headless: the StatefulSet gets stable DNS (postgres-0.postgres), and
+  # nothing outside the cluster should ever reach the database.
+  clusterIP: None
+  selector: { app: postgres }
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: oss-dashboard-secrets, key: POSTGRES_USER } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: oss-dashboard-secrets, key: POSTGRES_PASSWORD } }
+            - name: POSTGRES_DB
+              valueFrom: { secretKeyRef: { name: oss-dashboard-secrets, key: POSTGRES_DB } }
+            # The image only initialises a fresh cluster when its data
+            # directory is empty. A subdirectory keeps it away from
+            # lost+found and anything else the volume arrives with.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests: { memory: "160Mi", cpu: "100m" }
+            limits: { memory: "420Mi" }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "oss_dashboard"] }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "oss_dashboard"] }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # k3s ships the local-path provisioner, which puts the volume on the
+        # node's own disk. That is the right storage for a single-node
+        # cluster and the reason no EBS volume has to be managed separately.
+        storageClassName: local-path
+        resources:
+          requests: { storage: 8Gi }

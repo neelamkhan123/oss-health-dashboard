@@ -67,16 +67,17 @@ spec:
         - name: worker
           image: REPLACE_ME_DOCKERHUB_USER/oss-dashboard-api:latest
           imagePullPolicy: Always
-          # --concurrency=2 is deliberate: Celery defaults to one process per
-          # core, and each is a full interpreter with SQLAlchemy loaded. On a
-          # 1 GB t3.micro the default will OOM the node.
+          # Celery defaults to one process per core, and each is a full
+          # interpreter with SQLAlchemy loaded. Postgres and Redis now share
+          # this node too, so one worker process is the right budget — scale
+          # with replicas when demonstrating, not with concurrency.
           command:
             - celery
             - -A
             - app.services.celery_app
             - worker
             - --loglevel=info
-            - --concurrency=2
+            - --concurrency=1
           envFrom:
             - secretRef: { name: oss-dashboard-secrets }
             - configMapRef: { name: oss-dashboard-config }
@@ -116,13 +117,11 @@ kind: Service
 metadata:
   name: api-service
 spec:
-  # NodePort rather than an Ingress: CloudFront can use a custom origin port
-  # directly (30080 is inside its permitted 1024–65535 range), and it keeps
-  # the mental model close to docker-compose's port mapping. k3s ships
-  # Traefik if a cleaner setup is wanted later.
-  type: NodePort
+  # ClusterIP, not NodePort: the API is reached through the web pod's nginx
+  # proxy (see web.yaml), which is what keeps it same-origin with the
+  # frontend. Nothing outside the cluster talks to it directly.
+  type: ClusterIP
   selector: { app: api }
   ports:
     - port: 8000
       targetPort: 8000
-      nodePort: 30080

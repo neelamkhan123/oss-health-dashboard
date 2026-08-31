@@ -1,24 +1,22 @@
-# Non-secret runtime config. Safe to commit; the real secrets live in
-# secret.yaml, which is gitignored (copy secret.example.yaml to make it).
+# Non-secret runtime config. Safe to commit; real credentials live in
+# secret.yaml, which is gitignored.
 #
-# Every value here has to match the CloudFront distribution domain exactly:
-# services/oauth.py builds each provider's redirect_uri from API_BASE_URL,
-# routers/auth.py sends the browser to FRONTEND_URL after a provider round
-# trip, and main.py's CORS middleware allows exactly FRONTEND_URL as an
-# origin. They're the same host here on purpose — the frontend and the API
-# are served from one distribution, which is what keeps the session cookie
-# first-party (see DEPLOY_GUIDE.md 18.0).
+# FRONTEND_URL and API_BASE_URL both point at the *same* origin, because
+# nginx in the web pod serves the SPA and proxies /api to the API (see
+# web.yaml). That is what keeps the session cookie first-party.
+#
+# deploy/up.sh rewrites both to the instance's current address on every
+# deploy — the public IP changes each time the stack is recreated, which is
+# exactly why nothing else in the build knows it.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: oss-dashboard-config
 data:
-  FRONTEND_URL: "https://REPLACE_ME.cloudfront.net"
-  API_BASE_URL: "https://REPLACE_ME.cloudfront.net"
-  # Mandatory in production: the session cookie must never travel over
-  # plain HTTP. Local dev sets this false in .env; nothing else changes.
-  COOKIE_SECURE: "true"
-  # "lax" is correct *because* the API is same-origin with the frontend
-  # through CloudFront. Splitting the API onto its own domain would make
-  # this "none", which additionally requires TLS on the API itself.
+  FRONTEND_URL: "http://REPLACE_ME_HOST"
+  API_BASE_URL: "http://REPLACE_ME_HOST"
+  # false because the ephemeral deployment serves over plain HTTP on a bare
+  # IP, where a Secure cookie would never be sent. Set both of these to
+  # "true"/"lax" the moment you put TLS in front of it.
+  COOKIE_SECURE: "false"
   COOKIE_SAMESITE: "lax"

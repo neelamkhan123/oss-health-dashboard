@@ -141,3 +141,52 @@ tasks:
     prompt: This deletes every synced repo, PR, issue and commit. Continue?
     cmds:
       - "{{.COMPOSE}} down -v"
+
+  # ── ephemeral AWS deployment ────────────────────────────────────────
+  # The stack only exists while you are using it. See deploy/up.sh.
+  # Requires DOCKERHUB_USER in your environment.
+
+  deploy:images:
+    desc: Build and push both images for the cluster's architecture (linux/amd64)
+    cmds:
+      - docker buildx build --platform linux/amd64 -t $DOCKERHUB_USER/oss-dashboard-api:latest --push backend/
+      - docker buildx build --platform linux/amd64 -t $DOCKERHUB_USER/oss-dashboard-web:latest --push frontend/
+
+  deploy:up:
+    desc: Create the EC2 instance, install k3s, and deploy the whole stack
+    cmds:
+      - ./deploy/up.sh
+
+  deploy:down:
+    desc: Destroy the instance and its volume — stops all billing. Confirms first.
+    prompt: This terminates the instance and deletes its data. Continue?
+    cmds:
+      - ./deploy/down.sh
+
+  deploy:status:
+    desc: Show whether anything is currently running (and therefore billing)
+    silent: true
+    cmds:
+      - |
+        ID=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=oss-dashboard-server" \
+                    "Name=instance-state-name,Values=pending,running" \
+          --query 'Reservations[0].Instances[0].InstanceId' --output text 2>/dev/null)
+        if [ "$ID" = "None" ] || [ -z "$ID" ]; then
+          echo 'nothing running — $0.00/hour'
+        else
+          IP=$(aws ec2 describe-instances --instance-ids "$ID" \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
+          echo "running: $ID  ->  http://$IP:30080"
+          echo "billing by the hour — task deploy:down when finished"
+        fi
+
+  deploy:ssh:
+    desc: SSH into the running instance
+    cmds:
+      - |
+        IP=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=oss-dashboard-server" \
+                    "Name=instance-state-name,Values=running" \
+          --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
+        ssh -i ~/.ssh/oss-dashboard-key.pem -o StrictHostKeyChecking=no ubuntu@$IP
