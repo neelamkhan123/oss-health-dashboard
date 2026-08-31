@@ -1,0 +1,24 @@
+# Non-secret runtime config. Safe to commit; the real secrets live in
+# secret.yaml, which is gitignored (copy secret.example.yaml to make it).
+#
+# Every value here has to match the CloudFront distribution domain exactly:
+# services/oauth.py builds each provider's redirect_uri from API_BASE_URL,
+# routers/auth.py sends the browser to FRONTEND_URL after a provider round
+# trip, and main.py's CORS middleware allows exactly FRONTEND_URL as an
+# origin. They're the same host here on purpose — the frontend and the API
+# are served from one distribution, which is what keeps the session cookie
+# first-party (see DEPLOY_GUIDE.md 18.0).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oss-dashboard-config
+data:
+  FRONTEND_URL: "https://REPLACE_ME.cloudfront.net"
+  API_BASE_URL: "https://REPLACE_ME.cloudfront.net"
+  # Mandatory in production: the session cookie must never travel over
+  # plain HTTP. Local dev sets this false in .env; nothing else changes.
+  COOKIE_SECURE: "true"
+  # "lax" is correct *because* the API is same-origin with the frontend
+  # through CloudFront. Splitting the API onto its own domain would make
+  # this "none", which additionally requires TLS on the API itself.
+  COOKIE_SAMESITE: "lax"

@@ -201,8 +201,14 @@ id server-side first.
 
 ---
 
-*(Parts 10–18 — baseline performance measurement, the N+1 fix, Redis
-caching, code splitting, image handling, the README performance table,
-CI, and AWS deployment — are unchanged from the original guide and pick
-up exactly where they left off, against the endpoints in the table
-above.)*
+*(Parts 10–14 — baseline measurement, the query optimization, Redis
+caching, code splitting and image handling — are done; what they actually
+measured is written up in `PERFORMANCE.md`, including the two places the
+original guide's premise didn't survive contact with this codebase.*
+
+*Parts 15–19 — the final measurement pass, the README, CI, and AWS
+deployment — have been **revised** and now live in `DEPLOY_GUIDE.md`. They
+are not unchanged: adding authentication (Parts 00–02) broke the original
+guide's deployment architecture, its CI snippet predates the tests that now
+exist (one of which fails), and its Kubernetes Secret references a
+`JWT_SECRET` this app deliberately doesn't have.)*

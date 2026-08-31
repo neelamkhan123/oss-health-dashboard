@@ -4,6 +4,8 @@ venv
 .env
 .env.local
 .env.*.local
+# Filled-in copy of k8s/secret.example.yaml — real RDS/OAuth credentials.
+k8s/secret.yaml
 
 # Node
 node_modules
@@ -21,3 +23,6 @@ celerybeat.pid
 
 # OS / editor
 .DS_Store
+
+# Lighthouse CI run output
+.lighthouseci/

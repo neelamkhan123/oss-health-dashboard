@@ -1,156 +1,253 @@
 # Performance
 
-Every number below was actually measured against this repo (Docker Compose
-stack, real synced data for `facebook/react`/`vuejs/core`/`microsoft/vscode`,
-2026-08-25). Nothing here is illustrative — where a number wasn't captured,
-that's stated instead of filled in with a guess.
+Re-measured 2026-08-31 against this repo at HEAD (local Docker Compose
+stack, real synced data, Celery worker and beat paused so nothing competed
+for the box). This supersedes the 2026-08-25 pass, whose numbers were taken
+before `sync.py` paginated — every repo then held ~100 PRs, where the same
+repos now hold 1,000–1,800.
 
-## Backend: query count and response time
+Nothing here is illustrative. Where a number wasn't captured, that's stated
+rather than filled in with a guess.
 
-**The headline "N+1 → 1 query" story the guide sets up doesn't actually
-apply to this codebase, for two independent reasons — both real findings,
-not a wording nitpick:**
+## The dataset these numbers describe
 
-1. `Repo.pull_requests` uses SQLAlchemy's default `lazy="select"`, which
-   loads the *entire* related collection in one query the first time it's
-   touched — not one query per row. `repo_stats_naive` was never actually
-   N+1; it was always exactly 2 queries (the repo, then all its PRs at
-   once), computing the average in Python instead of SQL.
-2. `_sync_pull_requests` only ever fetches one page (`per_page: 100`, no
-   pagination loop), so every tracked repo caps around 100–130 synced PRs
-   regardless of its real size — nowhere near the "thousands" that would
-   make the Python-vs-SQL aggregation cost show up in wall-clock time
-   anyway.
-
-So the real optimization story here is **SQL-side aggregation replacing
-Python-side aggregation**, not N+1 elimination — a smaller but still real
-and legitimate improvement.
-
-| Endpoint | Repo | Queries | Response time | `total_prs` |
+| Repo | PRs | Issues | Commits | Contributors |
 |---|---|---|---|---|
-| `/stats-naive` | facebook/react | 2 | 47ms (cold), 7–8ms (warm) | 102 (all PRs) |
-| `/stats-naive` | vuejs/core | 2 | 7.7ms | 100 |
-| `/stats-naive` | microsoft/vscode | 2 | 7.6ms | 126 |
-| `/stats` (optimized, cold) | facebook/react | 2 | 37ms | 9 (**merged only**) |
-| `/stats` (optimized, cached) | facebook/react | **0** | 3.7ms | 9 |
+| microsoft/vscode | 1,818 | 1,464 | 2,264 | 100 |
+| facebook/react | 1,048 | 217 | 869 | 100 |
+| vuejs/core | 1,027 | 213 | 424 | 101 |
 
-**A correctness bug, not just a performance one**: `/stats-naive`'s
-`total_prs` counts *every* synced PR; `/stats` (Part 11's own snippet)
-counts only merged ones (`PullRequest.merged_at.isnot(None)`). For
-facebook/react that's 102 vs. 9 — a >10x difference in what the same field
-name means between the two endpoints. Implemented exactly as the guide
-specifies; flagging the mismatch rather than silently changing the
-contract.
+Roughly 10–18x the volume the previous measurement ran against. Everything
+below is a warm Postgres, single uvicorn worker, `--reload` on, on a laptop.
 
-### Load test — `/stats`, uncached vs. cached (`hey -n 200 -c 10`)
+## Backend: latency and query counts
 
-| | p50 | p90 | p95 | p99 | req/s |
-|---|---|---|---|---|---|
-| Uncached (real Postgres aggregate query every request) | 42.0ms | 58.6ms | 63.9ms | 74.8ms | 211 |
-| Cached (Redis, 900s TTL) | 22.2ms | 28.4ms | 33.5ms | 46.0ms | 493 |
+Median of 3 runs each. "Cold" clears the relevant Redis keys before every
+run; "cached" is the immediately-following repeat. Query counts come from
+the SQLAlchemy event listeners in `services/query_debug.py`.
 
-Roughly 2x, not the order-of-magnitude the guide's illustrative table
-shows — consistent with the dataset being small enough that even the
-uncached path is already fast; caching removes a fast Postgres round trip,
-not a slow one. The gap would widen with the realistic PR volumes noted
-above.
+| Endpoint | Cold | Queries | Cached | Queries |
+|---|---|---|---|---|
+| `/repos/1/stats-naive` (react) | 19.8ms | 3 | *not cached by design* | 3 |
+| `/repos/3/stats-naive` (vscode) | 34.2ms | 3 | *not cached by design* | 3 |
+| `/repos/facebook%2Freact/stats` | 8.6ms | 3 | 6.2ms | 2 |
+| `/repos/microsoft%2Fvscode/stats` | 7.9ms | 3 | 6.1ms | 2 |
+| `/repos/facebook%2Freact/full?days=90` | 44.8ms | 37 | 7.5ms | 2 |
+| `/repos/microsoft%2Fvscode/full?days=90` | 55.1ms | 37 | 8.0ms | 2 |
+| `/overview?days=90` (1 repo) | 135.1ms | 95 | 6.7ms | 1 |
+| `/overview?days=90` (3 repos) | 189.7ms | 165 | 9.4ms | 1 |
+| `/overview?days=90` (7 repos) | 396.9ms | 305 | 13.5ms | 1 |
+| `/repos` (tracked list) | 8.0ms | 5 | *not cached* | 5 |
 
-## Frontend: bundle size (Part 13, route + chart code splitting)
+Every row includes the one extra query `get_current_user` adds (`db.get(User,
+…)` after the Redis session lookup) — that's the fixed cost of authentication
+on every authenticated request, and it's the difference between these counts
+and the previous pass's.
 
-| | Before | After |
+### `/stats-naive` vs `/stats`: still not an N+1, but now a real gap
+
+The 2026-08-25 pass established that `repo_stats_naive` was never N+1 —
+`Repo.pull_requests` is `lazy="select"`, so it loads the whole collection in
+one query and averages in Python. That's still true. What changed is that
+the collection is now 10–18x bigger, so the cost of doing that work in
+Python instead of SQL is finally visible:
+
+- react (1,048 PRs): **19.8ms → 8.6ms**, a 2.3x improvement
+- vscode (1,818 PRs): **34.2ms → 7.9ms**, a 4.3x improvement
+
+Note the shape: the SQL-aggregate endpoint costs the same ~8ms on both
+repos, while the Python-side one grows with row count. That's the actual
+claim worth making — not "N+1 eliminated" but *the work moved to where it
+doesn't scale with the result set*. At the previous 100-PR ceiling this gap
+was invisible (47ms vs 37ms, mostly noise).
+
+**The `total_prs` contract mismatch flagged last time is still open**:
+`/stats-naive` counts every synced PR, `/stats` counts merged ones only
+(`PullRequest.merged_at.isnot(None)`). Same field name, different meaning,
+and now a much bigger absolute divergence.
+
+### `/overview` *is* the N+1 — 35 queries per tracked repo
+
+This is the finding the earlier pass missed by looking at the wrong
+endpoint. `/overview` calls `compute_repo_full` once per tracked repo in a
+list comprehension, then runs a fixed block of KPI queries. Measured at 1,
+3 and 7 repos, the query count fits exactly:
+
+```
+queries = 2 + 58 + (35 × tracked repos)
+          │    │           └─ compute_repo_full, once per repo, in a loop
+          │    └───────────── fixed KPI + sparkline block (see below)
+          └────────────────── session user lookup + the tracked-repo join
+```
+
+| Tracked repos | Predicted | Measured |
 |---|---|---|
-| Initial JS (what `index.html` actually loads) | 746.26 KB (214.57 KB gzip) | 349.23 KB (101.14 KB gzip) |
-| Loaded on demand (Overview/RepoDetail/Compare + Recharts, only when visited) | — (all of it, always) | ~397 KB raw / ~113 KB gzip, split across 7 chunks |
+| 1 | 95 | **95** |
+| 3 | 165 | **165** |
+| 7 | 305 | **305** |
 
-**53% reduction in initial JS payload** (746.26 → 349.23 KB raw). Verified
-by reading `dist/index.html` directly — only the entry chunk and CSS are
-eagerly `<script>`-tagged; every page and `TrendChartCard`'s Recharts
-import are `dynamic import()`s that show up as separate files and are
-absent from the initial network waterfall.
+The 58 fixed queries are worth breaking out, because 48 of them are
+sparklines: `open_issues_sparkline` is 12 queries (one per month),
+`contrib_sparkline` is 24 (two per month — PR authors and commit authors as
+separate `DISTINCT` queries), `prs_sparkline` is 12 (one per week). Each is
+a loop issuing one round trip per data point where a single `GROUP BY` over
+the whole window would do.
 
-## Frontend: Lighthouse (production build, `serve dist` on :3000, 3 runs)
+A user tracking 10 repos would issue **410 queries** on a cold `/overview`.
+That's the real optimization target in this codebase, and it's untouched.
 
-|Metric | Value |
-|---|---|
-| Performance score | 0.93–0.94 |
-| LCP | 2.8–2.9s |
-| FCP | 1.6s |
-| CLS | 0 |
-| TBT | 130–140ms |
-| Speed Index | 1.7–1.9s |
+### Load test
 
-**No true before/after delta for these** — the first attempt at a
-baseline (Part 10.1) failed on a directory/backgrounding mistake before
-any optimization work started, and it wasn't re-attempted before Part 11+
-began. This table is a single post-optimization snapshot, not a
-comparison. CLS is already 0, but not because of an image-sizing fix —
-Part 14 turned out not to apply (see below) — the app just never had
-layout-shifting content.
+`hey -n 200 -c 10`, authenticated with a session cookie.
 
-LCP at 2.8–2.9s is on the high side (Lighthouse's "needs improvement"
-band starts around 2.5s) despite the bundle-size win — main-thread work
-and one render-blocking resource (the CSS file) are the flagged causes;
-neither was addressed here, both are real next steps.
+| Workload | p50 | p90 | p95 | p99 | req/s |
+|---|---|---|---|---|---|
+| `/stats-naive` (uncached, Python-side aggregation) | 217ms | 279ms | 293ms | 335ms | 45.2 |
+| `/stats` (cached) | 38ms | 53ms | 63ms | 81ms | 243.9 |
+| `/overview?days=90` (cached) | 71ms | 92ms | 101ms | 130ms | 136.1 |
+| `/overview?days=90` (**uncached**) | 1,510ms | 1,639ms | 1,674ms | 1,796ms | 6.5 |
 
-## Part 14 (image sizing): doesn't apply, checked rather than assumed
+The uncached `/overview` row needed a trick to measure honestly: the cache
+key is `overview:{user}:{days}`, so hammering one URL only ever misses once.
+Instead, 100 requests each used a distinct `days` value (41–140) at
+concurrency 10, making every single one a genuine miss. The varying window
+does mean slightly varying work per request, which is noted rather than
+hidden.
 
-There are no unsized `<img>` tags to fix. The **only** raw `<img>`s in the
-codebase are in `App.tsx` — leftover Vite scaffolding never imported by
-`main.tsx`, not part of the shipped bundle. Every real avatar in the app
-(contributor leaderboard, avatar groups) renders `AvatarFallback` initials
-only, by design — that's what the actual Claude Design prototype does too
-(confirmed against its decoded source), not an oversight to "fix." Wiring
-up real `AvatarImage`s using the `avatarUrl` the backend already returns
-would be a legitimate feature, but it's a design change (the prototype
-doesn't show photos), not this optimization pass's job — noted for anyone
-picking that up later.
+**That row is the case for the cache**: 6.5 → 136 req/s and 1,510 → 71ms at
+p50, both about **21x**. Unlike the previous pass — where caching bought
+roughly 2x because even the uncached path was already fast — the current
+data volume makes the uncached path genuinely slow, and Redis is what stands
+between the dashboard's landing request and a 1.5-second wait.
 
-## Bugs found and fixed doing this measurement (not in the original guide)
+It also means the cache is load-bearing, not a nicety. With a 900s TTL
+matched to the sync cadence, the first request after every sync pays that
+1.5s; a `n`-repo user pays proportionally more.
 
-1. **The `api` container had been crash-looping for 26 hours**, invisible
-   in `docker ps` (`--reload`'s supervisor process stays "Up" even when
-   the app underneath it can't import). Root cause: `auth.py` uses
-   Pydantic's `EmailStr`, which needs the `email-validator` package —
-   never in `requirements.txt`. Fixed by adding it; this was silently
-   broken since Part 7 was first written.
-2. **`func.avg(func.extract(...))` returns a `Decimal`** from Postgres,
-   which the stdlib `json` module (used by the new Redis cache) can't
-   serialize — `/stats` 500'd the instant caching was added on top of it.
-   Fixed with an explicit `float()` cast before any arithmetic.
-3. **A stray root-level `package.json`** (holding `web-vitals` and
-   `@lhci/cli`) existed because those were `npm install`ed from the repo
-   root instead of `frontend/` at some point. Node's upward `node_modules`
-   resolution meant the frontend build "worked" by accident — silently
-   depending on files outside its own directory that a clean checkout or
-   CI wouldn't have. Fixed by installing both properly into
-   `frontend/package.json` and removing the root copy.
+## Frontend: bundle size
 
-## What changed
+Both builds are the **same commit**, differing only in whether `pages/lazy.tsx`
+and `LazyTrendChartCard.tsx` use `lazy(() => import(...))` or static
+re-exports — so this is a true A/B, not a comparison against an older
+snapshot of a smaller app.
 
-1. **Query optimization** (Part 11) — added `GET /repos/{id}/stats`, a
-   single SQL aggregate query replacing Python-side averaging. Not an N+1
-   fix (see above) — a real reduction in what the database and Python each
-   have to do per request.
-2. **Redis caching** (Part 12) — `/stats` responses cached 900s (matches
-   the sync job's cadence), invalidated on every sync. GitHub API
-   responses cached 300s across all three sync calls (PRs, issues,
-   contributors), not just PRs as the guide's snippet showed.
-3. **Code splitting** (Part 13) — routes and the chart library
-   (`TrendChartCard`, the only thing importing Recharts) are lazy-loaded.
-   53% smaller initial payload, verified against the actual built
-   `index.html`, not estimated.
-4. **Image sizing** (Part 14) — not applicable; verified rather than
-   assumed. See above.
+| | No code splitting | With code splitting |
+|---|---|---|
+| Initial JS (what `index.html` actually loads) | 781.76 KB (221.58 KB gzip) | **367.59 KB (107.63 KB gzip)** |
+| Deferred to on-demand chunks | 0 KB | 420.48 KB (125.36 KB gzip) |
+| Chunks emitted | 1 | 12 |
 
-## Next real steps, in rough priority order
+**53.0% smaller initial payload** (51.4% gzipped). Verified by parsing
+`dist/index.html` and summing only the files it eagerly references (the
+entry `<script>` plus its `modulepreload` links) — Recharts
+(`CartesianChart`, 339 KB) and all four routes are absent from that set.
 
-- Fix `_sync_pull_requests`/`_sync_issues` to actually paginate — the
-  entire "before" story here is capped by a ~100-row ceiling that has
-  nothing to do with the repos' real size.
-- Reconcile `total_prs`'s meaning between `/stats-naive` and `/stats`
-  before anyone builds a feature on either number.
-- Capture a genuine Lighthouse *before* — checkout the commit before Part
-  13's code-splitting, rebuild, re-run, so the bundle-size win has an LCP
-  delta to point to, not just a byte-count delta.
-- Address the render-blocking CSS and main-thread-work findings surfaced
-  by this Lighthouse run — separate from anything Part 11–14 touched.
+## Frontend: Lighthouse
+
+Production build, served by `vite preview`, LHCI default mobile preset with
+simulated throttling, 3 runs each. The API was proxied through the preview
+server at `/api` so the page and its data requests share an origin — the
+same arrangement `DEPLOY_GUIDE.md` specifies for production, and the only
+way to audit the signed-in dashboard without CORS interfering.
+
+Two pages are audited because the app has an auth guard now: `/` redirects
+a signed-out browser to `/login`, so a naive audit of `/` measures the login
+screen. The signed-in runs carry a session cookie via `extraHeaders`.
+
+| | Login (out) — no split | Login (out) — split | Overview (in) — no split | Overview (in) — split |
+|---|---|---|---|---|
+| Performance | 0.96 | **0.98** | 0.95 | **0.98** |
+| FCP | 2.11s | **1.76s** | 2.11s | **1.65s** |
+| LCP | 2.41s | **2.01s** | 2.65s | **2.22s** |
+| CLS | 0 | 0 | 0 | 0 |
+| TBT | 23–37ms | **0–2ms** | 49–52ms | 48–52ms |
+| Speed Index | 2.11s | **1.76s** | 2.11s | **1.65s** |
+
+**This closes the gap the previous pass flagged.** It listed "capture a
+genuine Lighthouse *before*" as an open next step, because the original
+baseline attempt failed on a directory mistake and was never retried. The
+table above is that before/after, taken the honest way — same code, one
+variable changed:
+
+- Login: **LCP −0.40s (−17%)**, FCP −0.35s, TBT effectively to zero.
+- Overview: **LCP −0.43s (−16%)**, FCP −0.46s (−22%).
+
+Modest in absolute terms, and worth saying why: on a fast local connection
+even 782 KB arrives quickly, so the byte-count win compresses into a
+few hundred milliseconds. On the 1.6 Mbps mobile profile Lighthouse
+simulates it's already worth ~0.4s of LCP; on a real slow connection the
+gap widens further.
+
+LCP also improved against the earlier pass's 2.8–2.9s, but those runs aren't
+comparable to these (different machine state, different app, no auth guard,
+different server), so no delta is claimed there.
+
+### Non-performance findings from the same runs
+
+- **Accessibility 0.96 on the login page** — one real contrast failure:
+  `#90a1b9` (slate-400) on white at 12px is 2.63:1, below the 4.5:1
+  threshold. The signed-in dashboard scores **1.00**.
+- **Best practices 0.96 on the login page** — caused by the expected
+  `401` from `/auth/me` when signed out being logged as a console error.
+  Cosmetic, but it's a real audit failure and would fail a strict CI gate;
+  swallowing that specific 401 in `authContext` would fix it. Signed in:
+  **1.00**.
+- **SEO 0.82 on both** — no meta description, and no valid `robots.txt`.
+  Two lines of work if it matters for a portfolio piece.
+- **CLS is 0** everywhere, as before — and still not because of any image
+  fix. Part 14 remains not applicable (see below).
+
+## Part 14 (image sizing): still doesn't apply
+
+Unchanged from the previous pass, re-confirmed: the only raw `<img>` tags
+are in `App.tsx`, leftover Vite scaffolding that `main.tsx` never imports.
+Every avatar in the shipped app renders `AvatarFallback` initials by design,
+matching the prototype. Wiring up real `AvatarImage`s from the `avatarUrl`
+the backend already returns is a feature, not an optimization.
+
+## Bugs found while measuring
+
+1. **The production build rendered a blank page.** `npm run build` succeeded
+   and the app mounted nothing — `#root` stayed empty with `Uncaught
+   TypeError: Cannot read properties of null (reading
+   'useSyncExternalStore')` from the UI library's `Toast`. Cause:
+   `@neelamkhan21/ui` is installed as a **symlink** to the local
+   `component-library` checkout, which carries its own `node_modules/react`,
+   so the build bundled two React copies. Dev survived it; `vite build` did
+   not. Fixed with `resolve.dedupe: ['react', 'react-dom']` in
+   `vite.config.ts`. Every Lighthouse number above was taken after this fix;
+   before it, there was nothing to measure.
+2. **`main` didn't typecheck.** An unused `i` in `RepoStatsRow.tsx`'s
+   `stats.map(([label, value], i) =>` failed `tsc -b`, so `npm run build`
+   exited 1 on a clean checkout. Committed, not a local edit. Removed.
+3. **`/debug/query-count` and its reset endpoint were public.** Registered
+   on `app` rather than the auth-guarded dashboard router, so they'd have
+   been world-readable in production. Removed now that they've served their
+   purpose; `services/query_debug.py` stays for local use.
+4. **A cache-invalidation gap.** `sync_one_repo` invalidates `repo_full:*`
+   and `overview:*` but not `repo_stats:{id}`, so `/stats` can serve
+   pre-sync data for up to its full 900s TTL while its siblings are fresh.
+   Bounded, but inconsistent — and not obvious from reading either file
+   alone.
+
+## Next real steps, in priority order
+
+1. **Collapse `/overview`'s sparkline queries.** 48 of its 58 fixed queries
+   are one-round-trip-per-data-point loops; three `GROUP BY` queries would
+   replace them. Biggest single win available, and it shrinks with no schema
+   change.
+2. **Stop calling `compute_repo_full` per repo in `/overview`.** 35 queries
+   per tracked repo is the actual N+1 in this codebase. Batching the
+   per-repo aggregates by `repo_id IN (…)` is the same technique `/stats`
+   already demonstrates, applied one level up.
+3. **Fix the `repo_stats:` invalidation gap** (#4 above).
+4. **Reconcile `total_prs`** between `/stats-naive` and `/stats` before
+   anything is built on either number.
+5. **Decide what `@neelamkhan21/ui` resolves to.** `package.json` declares
+   `^1.1.0` from the registry; the working tree has a symlink to a local
+   `1.2.1`. CI and any deploy will build against different code than
+   development does. The `dedupe` fix makes the symlink safe, but it doesn't
+   make the two environments the same.
+6. **The login page's contrast failure and the console-logged 401** — both
+   small, both would fail the accessibility gate `DEPLOY_GUIDE.md` Part 16
+   proposes for CI.

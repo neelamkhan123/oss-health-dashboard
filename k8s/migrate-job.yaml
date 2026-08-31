@@ -1,0 +1,28 @@
+# Migrations run as a one-off Job, not as a Deployment's startup step: a
+# Deployment whose process runs then exits looks like a crash loop to
+# Kubernetes.
+#
+#     kubectl apply -f k8s/migrate-job.yaml
+#     kubectl wait --for=condition=complete job/migrate --timeout=120s
+#     kubectl logs job/migrate
+#     kubectl delete job migrate     # so the next apply can recreate it
+#
+# (`kubectl run --env-from=...` is not a real flag — this manifest is how the
+# secret and config actually get into a one-off pod.)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: REPLACE_ME_DOCKERHUB_USER/oss-dashboard-api:latest
+          imagePullPolicy: Always
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - secretRef: { name: oss-dashboard-secrets }
+            - configMapRef: { name: oss-dashboard-config }

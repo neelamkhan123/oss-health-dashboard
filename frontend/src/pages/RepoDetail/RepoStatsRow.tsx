@@ -24,7 +24,7 @@ export function RepoStatsRow({ repo }: { repo: RepoStats }) {
 
   return (
     <div className="flex flex-wrap gap-3 items-stretch overflow-hidden">
-      {stats.map(([label, value], i) => (
+      {stats.map(([label, value]) => (
         <Card key={label} className="flex flex-1 flex-col gap-1.5 px-5 py-4">
           <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
             {label}
