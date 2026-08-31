@@ -147,10 +147,22 @@ tasks:
   # Requires DOCKERHUB_USER in your environment.
 
   deploy:images:
-    desc: Build and push both images for the cluster's architecture (linux/amd64)
+    desc: Build and push both images (arm64 + amd64, so they run on any host)
+    vars:
+      ARCH: '{{.TARGET_ARCH | default "linux/arm64,linux/amd64"}}'
     cmds:
-      - docker buildx build --platform linux/amd64 -t $DOCKERHUB_USER/oss-dashboard-api:latest --push backend/
-      - docker buildx build --platform linux/amd64 -t $DOCKERHUB_USER/oss-dashboard-web:latest --push frontend/
+      - docker buildx build --platform {{.ARCH}} -t $DOCKERHUB_USER/oss-dashboard-api:latest --push backend/
+      - docker buildx build --platform {{.ARCH}} -t $DOCKERHUB_USER/oss-dashboard-web:latest --push frontend/
+
+  deploy:remote:
+    desc: Deploy to a host you already have (Oracle Always Free VM) — set REMOTE_HOST
+    cmds:
+      - ./deploy/remote-up.sh
+
+  deploy:remote:ssh:
+    desc: SSH into that host
+    cmds:
+      - ssh -i ${KEY_FILE:-~/.ssh/oss-dashboard-key.pem} ubuntu@$REMOTE_HOST
 
   deploy:up:
     desc: Create the EC2 instance, install k3s, and deploy the whole stack
