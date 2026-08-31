@@ -2,10 +2,10 @@
 # Service that exposes the API. This is the thing docker-compose.yml couldn't
 # do: each rolls, scales and restarts independently.
 #
-# Replace REPLACE_ME_DOCKERHUB_USER throughout before applying. Build the
-# image for the instance's architecture, not your laptop's:
-#     docker buildx build --platform linux/amd64 \
-#       -t <user>/oss-dashboard-api:latest --push backend/
+# deploy/up.sh substitutes REPLACE_ME_DOCKERHUB_USER from $DOCKERHUB_USER, so
+# these are not meant to be edited by hand. Build the images with
+# `task deploy:images`, which pins --platform linux/amd64 — an image built on
+# an arm64 laptop pulls fine and then crash-loops with `exec format error`.
 ---
 apiVersion: apps/v1
 kind: Deployment

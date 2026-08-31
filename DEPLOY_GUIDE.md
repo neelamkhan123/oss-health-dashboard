@@ -65,13 +65,30 @@ defaults to **t3.small** rather than t3.micro: the node hosts Postgres and Redis
 as well as the app pods, and once you are paying by the hour for something you
 run occasionally, 2 GB of RAM costs about a penny more per hour than 1 GB.
 
-### What this leaves open
+### The stable-hostname option
 
-**OAuth needs a stable callback URL**, and an ephemeral public IP is not one.
-Email and password sign-in works on every deploy; GitHub and Google do not,
-until there's a fixed hostname. The cheap fix is a free DuckDNS subdomain
-updated on each `up`, plus Caddy in the cluster for automatic Let's Encrypt
-certificates — which would also get you HTTPS. Not built yet.
+Built, and optional. Setting `DUCKDNS_SUBDOMAIN` and `DUCKDNS_TOKEN` in
+`deploy/deploy.env` changes three things:
+
+1. `deploy/up.sh` repoints the free DuckDNS record at the new instance on every
+   deploy, so the public name survives an IP that doesn't.
+2. `k8s/caddy.yaml` is applied, and Caddy obtains a Let's Encrypt certificate
+   over HTTP-01 — hence the `type: LoadBalancer` Service on ports 80 and 443,
+   since k3s's servicelb can bind the standard ports and a NodePort cannot.
+3. `COOKIE_SECURE` flips to `true` and both URLs become `https://…`, which is
+   what lets the OAuth apps be registered against a callback that stays put.
+
+The non-obvious part is certificate persistence. Let's Encrypt allows five
+identical certificates per week; an ephemeral instance that reissues on every
+deploy would exhaust that in an afternoon. `down.sh` tars Caddy's `/data` off
+the instance before terminating it and `up.sh` puts it back, so what happens on
+a redeploy is a renewal check, not an issuance. The save is best-effort by
+design — a failure warns and carries on, because being unable to archive a
+certificate must never be a reason you can't stop billing.
+
+Left open: nothing forces you to use it. Without a hostname the stack still
+comes up on a bare IP over plain HTTP, which is the right default for a quick
+check and useless for showing anyone.
 
 ### Parts 17–19 below are still accurate
 
