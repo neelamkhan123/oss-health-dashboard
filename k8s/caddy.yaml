@@ -69,9 +69,15 @@ spec:
           resources:
             requests: { memory: "64Mi", cpu: "50m" }
             limits: { memory: "192Mi" }
+          # A TCP probe, deliberately, not httpGet. An HTTP probe against
+          # "/" gets redirected to HTTPS, which cannot succeed before a
+          # certificate exists — so the pod never goes ready, the Service
+          # gets no endpoints, port 80 refuses connections, and the ACME
+          # HTTP-01 challenge that would issue that certificate can never
+          # arrive. This probe only asks whether Caddy is listening.
           readinessProbe:
-            httpGet: { path: /, port: 80 }
-            initialDelaySeconds: 5
+            tcpSocket: { port: 80 }
+            initialDelaySeconds: 3
             periodSeconds: 10
       volumes:
         - name: config
