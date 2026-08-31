@@ -97,6 +97,40 @@ scp_node() {
       -o LogLevel=ERROR "${@:1:$#-1}" "${SSH_USER}@${!#}"
 }
 
+# Oracle's Ubuntu images ship an iptables ruleset that rejects everything
+# except ssh, and — the part that actually breaks Kubernetes — rejects the
+# whole FORWARD chain, which is where pod-to-pod and service traffic goes.
+# The cloud security list is the real perimeter here; these rules only need
+# to stop fighting it. Idempotent, and never touches the ssh rule, so it
+# cannot lock you out of the box it is running on.
+prepare_host_firewall() {
+  local ip="$1"
+  say "opening host firewall for http and k3s"
+  ssh_node "$ip" 'set -e
+command -v iptables >/dev/null || exit 0
+
+add_input() {  # insert before the trailing REJECT, only if not already there
+  sudo iptables -C INPUT "$@" -j ACCEPT 2>/dev/null ||     sudo iptables -I INPUT 5 "$@" -j ACCEPT
+}
+
+add_input -p tcp -m state --state NEW -m tcp --dport 80      # http / ACME challenge
+add_input -p tcp -m state --state NEW -m tcp --dport 443     # https
+add_input -p tcp -m state --state NEW -m tcp --dport 30080   # NodePort, when used directly
+add_input -p udp --dport 8472                                # flannel vxlan
+add_input -p tcp -m state --state NEW -m tcp --dport 10250   # kubelet
+add_input -s 10.42.0.0/16                                    # k3s pod cidr
+add_input -s 10.43.0.0/16                                    # k3s service cidr
+
+# k3s installs its own FORWARD rules; the blanket REJECT in front of them
+# silently drops every packet between pods.
+while sudo iptables -C FORWARD -j REJECT --reject-with icmp-host-prohibited 2>/dev/null; do
+  sudo iptables -D FORWARD -j REJECT --reject-with icmp-host-prohibited
+done
+
+command -v netfilter-persistent >/dev/null && sudo netfilter-persistent save >/dev/null 2>&1 || true'
+  ok "host firewall ready"
+}
+
 # Install k3s on a host that does not already have it. AWS does this through
 # user-data at launch; a hand-provisioned box (Oracle, or anything else with
 # ssh) needs it done over the wire instead.

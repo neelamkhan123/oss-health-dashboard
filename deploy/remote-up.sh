@@ -43,6 +43,7 @@ if [ -n "$EXPECTED" ] && [[ ",${TARGET_ARCH}," != *",${EXPECTED},"* ]]; then
 fi
 ok "architecture matches ($REMOTE_ARCH)"
 
+prepare_host_firewall "$IP"
 ensure_k3s "$IP"
 
 if use_https; then
