@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { Badge, Sparkline, type DataTableColumn } from "@neelamkhan21/ui";
+import { Badge, Sparkline, type DataTableColumn } from "neelam-ui";
 import { Folder } from "lucide-react";
 import { StyledDataTable } from "../../components/StyledDataTable";
 import { repoColor } from "../../lib/types";

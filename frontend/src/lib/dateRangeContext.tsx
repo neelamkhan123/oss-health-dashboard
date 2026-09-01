@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import { defaultDateRangePresets, type DateRange } from "@neelamkhan21/ui";
+import { defaultDateRangePresets, type DateRange } from "neelam-ui";
 
 const DEFAULT_PRESET = defaultDateRangePresets.find((preset) => preset.label === "Last 90 days")!;
 

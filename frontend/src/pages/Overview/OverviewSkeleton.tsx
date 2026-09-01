@@ -1,4 +1,4 @@
-import { Skeleton, Card } from "@neelamkhan21/ui";
+import { Skeleton, Card } from "neelam-ui";
 
 export function OverviewSkeleton() {
   return (

@@ -7,7 +7,7 @@ import { visualizer } from 'rollup-plugin-visualizer'
 export default defineConfig({
   plugins: [react(), tailwindcss(), visualizer({ open: false, filename: 'dist/stats.html' })],
   resolve: {
-    // @neelamkhan21/ui is installed as a symlink to the local component-library
+    // neelam-ui is installed as a symlink to the local component-library
     // checkout, which has its own node_modules/react. Without this, the
     // production build ends up with two React copies and the app renders a
     // blank page ("Cannot read properties of null (reading

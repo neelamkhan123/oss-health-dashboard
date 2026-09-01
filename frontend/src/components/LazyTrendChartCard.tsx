@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { Card, Skeleton } from "@neelamkhan21/ui";
+import { Card, Skeleton } from "neelam-ui";
 
 // Part 13.2: Recharts is the single biggest dependency this dashboard pulls
 // in, and TrendChartCard is the only thing that imports it. One shared

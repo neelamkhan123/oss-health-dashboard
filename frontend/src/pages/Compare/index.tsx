@@ -1,5 +1,5 @@
 import { Suspense, useState, type CSSProperties } from "react";
-import { Toggle, EmptyState, StatCard, Button } from "@neelamkhan21/ui";
+import { Toggle, EmptyState, StatCard, Button } from "neelam-ui";
 import { Layers, TriangleAlert } from "lucide-react";
 import {
   LazyTrendChartCard,

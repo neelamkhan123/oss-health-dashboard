@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, toast } from "@neelamkhan21/ui";
+import { Button, toast } from "neelam-ui";
 import { Eye, EyeOff } from "lucide-react";
 import { fetchWatchStatus, watchRepo, unwatchRepo } from "../../lib/api";
 

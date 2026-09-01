@@ -211,7 +211,7 @@ the backend already returns is a feature, not an optimization.
    and the app mounted nothing — `#root` stayed empty with `Uncaught
    TypeError: Cannot read properties of null (reading
    'useSyncExternalStore')` from the UI library's `Toast`. Cause:
-   `@neelamkhan21/ui` is installed as a **symlink** to the local
+   `neelam-ui` is installed as a **symlink** to the local
    `component-library` checkout, which carries its own `node_modules/react`,
    so the build bundled two React copies. Dev survived it; `vite build` did
    not. Fixed with `resolve.dedupe: ['react', 'react-dom']` in
@@ -243,7 +243,7 @@ the backend already returns is a feature, not an optimization.
 3. **Fix the `repo_stats:` invalidation gap** (#4 above).
 4. **Reconcile `total_prs`** between `/stats-naive` and `/stats` before
    anything is built on either number.
-5. **Decide what `@neelamkhan21/ui` resolves to.** `package.json` declares
+5. **Decide what `neelam-ui` resolves to.** `package.json` declares
    `^1.1.0` from the registry; the working tree has a symlink to a local
    `1.2.1`. CI and any deploy will build against different code than
    development does. The `dedupe` fix makes the symlink safe, but it doesn't

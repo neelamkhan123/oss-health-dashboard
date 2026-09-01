@@ -1,4 +1,4 @@
-import { Card } from "@neelamkhan21/ui";
+import { Card } from "neelam-ui";
 import type { RepoStats } from "../../lib/types";
 
 /**

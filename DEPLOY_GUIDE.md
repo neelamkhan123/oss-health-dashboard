@@ -225,7 +225,7 @@ One-paragraph what-it-is + screenshot (light and dark, since you built both).
 
 ## Stack
 FastAPI · Postgres · Redis · Celery (worker + beat) · React 19 / Vite ·
-Tailwind 4 · your own @neelamkhan21/ui component library · k3s on EC2.
+Tailwind 4 · your own neelam-ui component library · k3s on EC2.
 
 ## Running it locally
 Exactly two commands, because Taskfile.yaml already does the rest:
@@ -419,7 +419,7 @@ inside that job. Harmless here (nothing in `backend-test` calls the GitHub
 API), but if you later add a step that needs the real one, rename this to
 something like `GH_PAT` and map it in `config.py`.
 
-`npm ci` needs `@neelamkhan21/ui` to be a **public** npm package. If you
+`npm ci` needs `neelam-ui` to be a **public** npm package. If you
 ever make it private, CI needs an `NODE_AUTH_TOKEN` secret and a
 `registry-url` on `setup-node`.
 

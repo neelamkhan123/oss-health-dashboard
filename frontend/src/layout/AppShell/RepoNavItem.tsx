@@ -3,7 +3,7 @@ import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
-} from "@neelamkhan21/ui";
+} from "neelam-ui";
 import { Folder, Pin } from "lucide-react";
 import {
   RepoActionsMenu,

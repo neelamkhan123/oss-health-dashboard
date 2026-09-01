@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Input, Button, toast } from "@neelamkhan21/ui";
+import { Input, Button, toast } from "neelam-ui";
 import { addTrackedRepo } from "../../lib/api";
 import { useTrackedRepos } from "../../lib/trackedReposContext";
 

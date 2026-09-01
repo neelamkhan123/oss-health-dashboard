@@ -12,7 +12,7 @@ import {
   getPaginationRange,
   type DataTablePaginationState,
   type DataTableProps,
-} from "@neelamkhan21/ui";
+} from "neelam-ui";
 
 export interface StyledDataTableProps<T> extends DataTableProps<T> {
   /** Extra classes for the wrapping Card, e.g. to add margin. */

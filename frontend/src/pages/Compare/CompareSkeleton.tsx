@@ -1,4 +1,4 @@
-import { Card, Skeleton } from "@neelamkhan21/ui";
+import { Card, Skeleton } from "neelam-ui";
 
 export function CompareSkeleton() {
   return (

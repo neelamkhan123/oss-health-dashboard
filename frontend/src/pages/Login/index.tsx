@@ -12,7 +12,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@neelamkhan21/ui";
+} from "neelam-ui";
 import { Eye, EyeOff } from "lucide-react";
 import { useAuth } from "../../lib/authContext";
 import { ThemeToggle } from "../../layout/AppShell/ThemeToggle";

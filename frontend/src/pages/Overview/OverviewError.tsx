@@ -1,4 +1,4 @@
-import { EmptyState, Button } from "@neelamkhan21/ui";
+import { EmptyState, Button } from "neelam-ui";
 import { TriangleAlert } from "lucide-react";
 
 export function OverviewError({ onRetry }: { onRetry: () => void }) {

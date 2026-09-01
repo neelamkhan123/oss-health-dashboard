@@ -4,7 +4,7 @@ import {
   Avatar,
   AvatarFallback,
   type DataTableColumn,
-} from "@neelamkhan21/ui";
+} from "neelam-ui";
 import { StyledDataTable } from "../../components/StyledDataTable";
 import { fetchContributors } from "../../lib/api";
 import type { ContributorRow } from "../../lib/types";

@@ -5,7 +5,7 @@ import {
   ChartLegendItem,
   ChartDataTable,
   Toggle,
-} from "@neelamkhan21/ui";
+} from "neelam-ui";
 import {
   ResponsiveContainer,
   LineChart,
