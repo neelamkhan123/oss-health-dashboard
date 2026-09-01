@@ -7,7 +7,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from "@neelamkhan21/ui";
+} from "neelam-ui";
 import type { RepoStats, MetricValue } from "../../lib/types";
 
 /**

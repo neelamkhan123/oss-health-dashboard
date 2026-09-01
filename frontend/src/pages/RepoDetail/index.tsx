@@ -1,5 +1,5 @@
 import { useParams } from "react-router-dom";
-import { Badge, Button, EmptyState, Skeleton } from "@neelamkhan21/ui";
+import { Badge, Button, EmptyState, Skeleton } from "neelam-ui";
 import { ExternalLink, TriangleAlert } from "lucide-react";
 import { PageHeader } from "../../layout/PageHeader";
 import {

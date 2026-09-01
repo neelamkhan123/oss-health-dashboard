@@ -21,7 +21,7 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
-} from "@neelamkhan21/ui";
+} from "neelam-ui";
 import {
   LayoutDashboard,
   Activity,

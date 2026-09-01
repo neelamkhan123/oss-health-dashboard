@@ -1,4 +1,4 @@
-import { Chart, ChartDataTable, Card } from "@neelamkhan21/ui";
+import { Chart, ChartDataTable, Card } from "neelam-ui";
 import {
   ResponsiveContainer,
   BarChart,

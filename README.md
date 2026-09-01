@@ -16,7 +16,7 @@ per user, compared side by side, and drilled into individually.
 **Backend** — FastAPI, Postgres (SQLAlchemy + Alembic), Redis, Celery worker
 and beat.
 **Frontend** — React 19, Vite, React Router, Tailwind 4, Recharts, and
-[`@neelamkhan21/ui`](https://www.npmjs.com/package/@neelamkhan21/ui) — my own
+[`neelam-ui`](https://www.npmjs.com/package/neelam-ui) — my own
 component library, built as a separate project and consumed here as a real
 dependency.
 **Infrastructure** — Docker Compose locally; k3s in deployment, with Postgres

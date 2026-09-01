@@ -1,4 +1,4 @@
-import { Card } from "@neelamkhan21/ui";
+import { Card } from "neelam-ui";
 import { PERCENTILE_SCALE_DAYS, percentileDays, type RepoStats } from "../../lib/types";
 
 /**

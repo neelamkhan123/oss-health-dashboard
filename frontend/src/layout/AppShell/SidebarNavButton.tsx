@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { SidebarMenuButton } from "@neelamkhan21/ui";
+import { SidebarMenuButton } from "neelam-ui";
 import type { MouseEvent, ReactNode } from "react";
 
 // SidebarMenuButton always renders a real <a href>, so it can't be nested

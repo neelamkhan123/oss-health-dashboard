@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@source "../node_modules/@neelamkhan21/ui/dist";
+@source "../node_modules/neelam-ui/dist";
 
 /* Tailwind v4's default `dark:` variant is `prefers-color-scheme` — fine
  * for following the OS, but it can't be overridden by an in-app toggle.
@@ -7,7 +7,7 @@
  * ThemeProvider (src/lib/themeContext.tsx) drive both an explicit
  * light/dark choice *and* "system" through the same switch: for
  * "system" it just sets the class to match matchMedia itself, so every
- * `dark:` utility in the app — and in @neelamkhan21/ui, compiled into
+ * `dark:` utility in the app — and in neelam-ui, compiled into
  * this same build via the @source above — stays governed by one flag
  * either way. */
 @custom-variant dark (&:where(.dark, .dark *));
@@ -21,7 +21,7 @@
 
   /* The categorical series palette, promoted to a global scope.
    *
-   * @neelamkhan21/ui sets --chart-1..8 on the <Chart> element itself, so
+   * neelam-ui sets --chart-1..8 on the <Chart> element itself, so
    * var(--chart-N) only resolves *inside* a chart. Several places in this
    * app need the same series color outside one — a repo's color on its
    * StatCard sparkline, the sparkline column in the tracked-repos table,

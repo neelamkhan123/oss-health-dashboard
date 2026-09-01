@@ -4,7 +4,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   buttonVariants,
-} from "@neelamkhan21/ui";
+} from "neelam-ui";
 import { Check, Monitor, Moon, Sun } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTheme } from "../../lib/themeContext";

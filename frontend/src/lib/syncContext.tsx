@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { toast } from "@neelamkhan21/ui";
+import { toast } from "neelam-ui";
 import { fetchSyncStatus, stopSync as apiStopSync, triggerSync } from "./api";
 import type { SyncStatus } from "./types";
 

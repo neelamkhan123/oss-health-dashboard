@@ -1,4 +1,4 @@
-import { EmptyState } from "@neelamkhan21/ui";
+import { EmptyState } from "neelam-ui";
 import { Inbox } from "lucide-react";
 import { AddRepositoryInline } from "./AddRepositoryInline";
 

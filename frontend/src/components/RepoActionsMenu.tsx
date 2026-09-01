@@ -16,7 +16,7 @@ import {
   ContextMenuTrigger,
   DropdownMenuTrigger,
   toast,
-} from "@neelamkhan21/ui";
+} from "neelam-ui";
 import { MoreHorizontal, Pin, PinOff, Trash2 } from "lucide-react";
 import { removeTrackedRepo, setRepoPinned } from "../lib/api";
 import { useTrackedRepos } from "../lib/trackedReposContext";

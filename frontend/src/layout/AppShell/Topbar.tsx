@@ -11,7 +11,7 @@ import {
   defaultDateRangePresets,
   SidebarTrigger,
   type DateRange,
-} from "@neelamkhan21/ui";
+} from "neelam-ui";
 import { ChevronLeft, Zap } from "lucide-react";
 import { Fragment, useEffect, type MouseEvent } from "react";
 import { useDateRange } from "../../lib/dateRangeContext";

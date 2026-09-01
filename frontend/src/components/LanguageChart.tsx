@@ -1,4 +1,4 @@
-import { Chart, ChartLegendItem, ChartDataTable, Card } from "@neelamkhan21/ui";
+import { Chart, ChartLegendItem, ChartDataTable, Card } from "neelam-ui";
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
 import type { RepoStats } from "../lib/types";
 import { languageColor } from "../lib/languageColors";

@@ -32,7 +32,7 @@ data: base64}}` — gzip-decompress `data` when `compressed` is true).
 Every component either page needs (`StatCard`, `Chart`, `DataTable`, the
 `Sidebar` family, `Toggle`, `Badge`, `Card`, `AvatarGroup`, `Sparkline`,
 `DateRangePicker`, `EmptyState`, `Skeleton`, `Breadcrumb`, raw `Table`)
-is built, published as `@neelamkhan21/ui@1.1.0`, and installed. Its design
+is built, published as `neelam-ui@1.1.0`, and installed. Its design
 tokens (the slate/red/emerald palette, the `--chart-1..8` series colors,
 spacing, radii, shadows) are confirmed identical to the prototype's own —
 the prototype's CSS is literally commented "transcribed from the source
@@ -44,7 +44,7 @@ structure-and-data job, not a re-theming job.
 ## PART 9.1–9.3 — Vite scaffold, package install, env var
 
 Done as written, plus Tailwind v4 (`@tailwindcss/vite`, `@source
-"../node_modules/@neelamkhan21/ui/dist"` in `index.css` — without that
+"../node_modules/neelam-ui/dist"` in `index.css` — without that
 line Tailwind's v4 content scanner never sees class names inside the
 library's compiled output). `frontend/.env.local` now exists
 (`VITE_API_URL=http://localhost:8000/api`, gitignored via the scaffold's

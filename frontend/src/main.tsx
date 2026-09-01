@@ -1,7 +1,7 @@
 import { StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { Toaster } from "@neelamkhan21/ui";
+import { Toaster } from "neelam-ui";
 import { ProtectedLayout } from "./layout/ProtectedLayout";
 import { RequireAuth } from "./components/RequireAuth.tsx";
 import {

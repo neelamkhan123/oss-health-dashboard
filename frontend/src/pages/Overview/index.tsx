@@ -1,4 +1,4 @@
-import { StatCard } from "@neelamkhan21/ui";
+import { StatCard } from "neelam-ui";
 import { Clock, CircleAlert, Users, TrendingUp } from "lucide-react";
 import { fetchOverview } from "../../lib/api";
 import { useFetch } from "../../lib/useFetch";
